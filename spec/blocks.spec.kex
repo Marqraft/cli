@@ -1,0 +1,33 @@
+using Marqraft.Project
+
+describe "theme template blocks" do
+  it "renders a block through its Kex template with a Markdown slot" do
+    let external = "/private/tmp/marqraft-block-theme-${Marqraft.Store.identifier}/block-theme"
+    Marqraft.Builtin.files("basic").entries.each do |entry|
+      let (path, source) = entry
+      let text = if path == "marqraft-theme.jsonc"
+        source.replace("\"blocks\": [", "\"blocks\": [\n    { \"id\": \"card\", \"element\": \"marqraft-card\", \"label\": \"Card\", \"body\": \"markdown\", \"template\": \"blocks/card.html.ket\", \"settings\": [{ \"name\": \"title\", \"label\": \"Title\", \"type\": \"text\", \"default\": \"Card\" }] },")
+      else
+        source
+      end
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.File.write(external + "/" + path, text))
+    end
+    assert(FS.Directory.create(external + "/blocks"))
+    assert(FS.File.write(external + "/blocks/card.html.ket", "---\nparams: [context: {String: Any}]\n---\n<section class=\"card\"><h4><%= context[\"settings\"].try[\"title\"].or(\"\") %></h4><div data-marq-slot><%== context[\"body\"].or(\"\") %></div></section>"))
+    let root = "/private/tmp/marqraft-block-site-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, external).try
+    let site = Marqraft.Project.load(root).try
+    let home = site.pages.find { |page| page.path == "/" }.try
+    let source = home.source + "\n<marqraft-card title=\"A &lt;card&gt;\">\nSome **bold** text.\n</marqraft-card>\n"
+    let saved = Marqraft.Project.save(root, home.id, home.revision, source).try
+    let loaded = Marqraft.Project.load(root).try
+    let published = Marqraft.Theme.render(loaded, saved, false).try
+    assert(published.contains?("<section class=\"card\"><h4>A &lt;card&gt;</h4><div>"))
+    assert(published.contains?("<strong>bold</strong>"))
+    assert(!published.contains?("data-marq"))
+    let authoring = Marqraft.Theme.render(loaded, saved, true).try
+    assert(authoring.contains?("data-marq-block=\"card\""))
+    assert(authoring.contains?("data-marq-slot"))
+  end
+end

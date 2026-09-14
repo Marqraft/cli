@@ -1,0 +1,90 @@
+module Marqraft.Data
+
+using JSON
+
+let object(value: Any) -> {String: Any} or! String do
+  return Error("expected an object") if Type.of(value).name != "Map"
+  return Ok(value)
+end
+
+let text(value: Any, key: String, fallback: String) -> String do
+  let fields = object(value).or({})
+  let item = fields.get(key).or(fallback)
+  return "${item}" if Type.of(item).name == "String"
+  return fallback
+end
+
+let flag(value: Any, key: String, fallback: Bool) -> Bool do
+  let item = object(value).or({}).get(key).or(fallback)
+  return item if Type.of(item).name == "Bool"
+  return fallback
+end
+
+let integer(value: Any, key: String, fallback: Integer) -> Integer do
+  let item = object(value).or({}).get(key).or(fallback)
+  return item if Type.of(item).name == "Integer"
+  return fallback
+end
+
+let list(value: Any) -> [Any] or! String do
+  return Error("expected an array") if Type.of(value).name != "List"
+  return Ok(value)
+end
+
+let parse(text: String) -> Any or! String do
+  match JSON.parse(text, options: { allowComments: true }) do
+    Ok(value) => Ok(value)
+    Error(error) => Error("invalid JSON: ${error}")
+  end
+end
+
+foul read(path: String) -> Any or! String do
+  let source = match FS.File.read(path) do
+    Ok(value) => value
+    Error(_) => return Error("cannot read ${path}")
+  end
+  return Marqraft.Data.decode(source)
+end
+
+# OTP's JSON decoder is far faster than the Kex parser on theme manifests,
+# frontmatter and save payloads. It raises on input it rejects, which Kex
+# cannot rescue, so it runs through rpc:call and a {badrpc, _} tuple (never a
+# decoded JSON value) sends the text to JSON.parse, which also accepts JSONC
+# comments and reports errors.
+foul decode(text: String) -> Any or! String do
+  let decoded = Erlang.Rpc.call(Erlang.Erlang.node(), :json, :decode, [text])
+  return Marqraft.Data.parse(text) if Type.of(decoded).name == "Tuple"
+  return Ok(decoded)
+end
+
+# JSON for API replies through OTP's encoder: Kex's JSON.stringify slows down
+# sharply on long strings (a 59 KB page body took over a minute). Replies hold
+# only maps, lists, strings, integers and booleans.
+foul encode(value: Any) -> String do
+  return "${Erlang.Erlang.iolist_to_binary(Erlang.Json.encode(value))}"
+end
+
+# Indented JSON for versioned project files, so Git diffs stay line-sized.
+let pretty(value: Any) -> String do
+  return indented(value, "") + "\n"
+end
+
+let indented(value: Any, indent: String) -> String do
+  let kind = Type.of(value).name
+  let inner = indent + "  "
+  if kind == "Map"
+    let fields = object(value).or({})
+    return "{}" if fields.empty?
+    let lines = fields.entries.map do |entry|
+      let (key, item) = entry
+      inner + JSON.stringify(key) + ": " + indented(item, inner)
+    end
+    return "{\n" + lines.join(",\n") + "\n" + indent + "}"
+  end
+  if kind == "List"
+    let items = list(value).or([])
+    return "[]" if items.empty?
+    return "[\n" + items.map { |item| inner + indented(item, inner) }.join(",\n") + "\n" + indent + "]"
+  end
+  return JSON.stringify(value)
+end

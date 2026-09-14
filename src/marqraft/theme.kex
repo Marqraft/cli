@@ -1,0 +1,398 @@
+module Marqraft.Theme
+
+using Marqraft.Project, only: [Site]
+using Marqraft.Document, only: [Page]
+
+# Resolves the theme a site selects to a project-relative directory:
+#
+#   "book"              a built-in theme, shipped inside marq
+#   "./themes/mine"     a theme directory inside the project (vendored or a submodule)
+#   "/path/to/theme"    a theme kept elsewhere, such as its own repository
+#   "../theme"
+#
+# Built-in and external themes are copied into the ignored cache, keyed by
+# content, because theme templates compile from project files; editing an
+# external theme takes effect on the next load. Sites predating theme
+# selection keep their theme/ copy.
+foul resolve(root: String, config: {String: Any}) -> String or! String do
+  let fallback = FS.File.file?(root + "/theme/marqraft-theme.jsonc") then "./theme" else "book"
+  let name = Marqraft.Data.text(config, "theme", fallback)
+  return materialize(root, name, Marqraft.Builtin.files(name)) if Marqraft.Builtin.names.contains?(name)
+  return external(root, name) if name.startsWith?("/") || name.startsWith?("../")
+  let trimmed = name.startsWith?("./") then name.drop(2) else name
+  let relative = trimmed.endsWith?("/") then trimmed.take(trimmed.count - 1) else trimmed
+  let manifest = Marqraft.Store.safePath(root, relative + "/marqraft-theme.jsonc").try
+  return Error("theme not found: ${name}") if !FS.File.file?(manifest)
+  return Ok(relative)
+end
+
+foul external(root: String, name: String) -> String or! String do
+  let source = Marqraft.Store.realPath(name.startsWith?("/") then name else root + "/" + name).try
+  return Error("theme not found: ${name} has no marqraft-theme.jsonc") if !FS.File.file?(source + "/marqraft-theme.jsonc")
+  let paths = Marqraft.Store.tree(source, "", true).try.filter { |path| Marqraft.Store.relative?(path) }.sort
+  # Files are copied, not read as text, so themes can ship images and fonts.
+  let fingerprint = paths.map { |path| path + "\n" + Digest.fileSha256(source + "/" + path).or("") }.join("\n")
+  let base = FS.Path.basename(source)
+  let label = Marqraft.Document.slug?(base) then base else "theme"
+  let directory = ".marqraft/cache/themes/${label}-${Digest.sha256(fingerprint).take(16)}"
+  if !FS.File.file?(root + "/" + directory + "/marqraft-theme.jsonc")
+    # The manifest is copied last, so an interrupted copy is repeated.
+    copyFiles(root, source, directory, paths.filter { |path| path != "marqraft-theme.jsonc" }).try
+    copyFiles(root, source, directory, ["marqraft-theme.jsonc"]).try
+    let _ = directory
+  end
+  return Ok(directory)
+end
+
+foul copyFiles(root: String, source: String, directory: String, paths: [String]) -> Void or! String do
+  return Ok(()) if paths.empty?
+  let path = paths.first.or("")
+  let target = Marqraft.Store.safePath(root, directory + "/" + path).try
+  return Error("cannot create a theme folder for ${path}") if !FS.Directory.create(FS.Path.dirname(target))
+  return Error("cannot copy theme file ${path}") if !FS.File.copy(source + "/" + path, target)
+  return copyFiles(root, source, directory, paths.drop(1))
+end
+
+foul materialize(root: String, name: String, files: {String: String}) -> String or! String do
+  let fingerprint = files.entries.map do |entry|
+    let (path, source) = entry
+    path + "\n" + source
+  end.join("\n")
+  let label = Marqraft.Document.slug?(name) then name else "theme"
+  let directory = ".marqraft/cache/themes/${label}-${Digest.sha256(fingerprint).take(16)}"
+  if !FS.File.file?(root + "/" + directory + "/marqraft-theme.jsonc")
+    # The manifest is written last, so an interrupted copy is repeated.
+    files.entries.each do |entry|
+      let (path, source) = entry
+      Marqraft.Store.write(root, directory + "/" + path, source).try if path != "marqraft-theme.jsonc"
+    end
+    Marqraft.Store.write(root, directory + "/marqraft-theme.jsonc", files.get("marqraft-theme.jsonc").or("{}")).try
+  end
+  return Ok(directory)
+end
+
+foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
+  let body = Marqraft.Content.render(page.body, authoring?, site.root, Marqraft.Data.list(site.theme.get("blocks").or([])).try)
+  let title = authoring? then "<h1 data-marq-title>${Marqraft.Content.escape(page.title)}</h1>" else "<h1>${Marqraft.Content.escape(page.title)}</h1>"
+  let content = authoring? then "<div data-marq-body>${body}</div>" else body
+  let settings = Marqraft.Data.object(site.config.get("settings").or({})).try
+  let links = navigation(site, site.navigation, authoring?, page.id)
+  # A collection is a top-level navigation entry; its nested pages are its members.
+  let collectionNodes = site.navigation.filter { |node| containsPage?(node, page.id) }
+  let collectionNode = collectionNodes.first.or({})
+  let collectionId = Marqraft.Data.text(collectionNode, "id", "")
+  let collectionPage = site.pages.find { |item| item.id == collectionId }
+  let collectionTitle = match collectionPage do
+    Just(item) => titleOf(item)
+    None => ""
+  end
+  let collectionPath = match collectionPage do
+    Just(item) => pathOf(item)
+    None => "/"
+  end
+  let collections = collectionsHtml(site, page.id, authoring?)
+  let members = navigation(site, childrenOf(collectionNode), authoring?, page.id)
+  let menus = menuContext(site, page, Marqraft.Project.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
+  let base = {
+    "title": page.title, "description": page.description, "path": page.path,
+    "siteTitle": Marqraft.Data.text(site.config, "title", "My site"),
+    "settings": settingValues(site, settings),
+    "body": content, "heading": title,
+    "navigation": authoring? then "<div data-marq-navigation>${links}</div>" else links,
+    "navigation:collections": authoring? then "<div data-marq-navigation data-marq-scope=\"collections\">${collections}</div>" else collections,
+    "navigation:collection": authoring? then "<div data-marq-navigation data-marq-scope=\"collection\" data-marq-collection=\"${Marqraft.Content.escape(collectionId)}\">${members}</div>" else members,
+    "collectionId": collectionId, "collectionTitle": collectionTitle, "collectionPath": collectionPath,
+    "pager": pager(site, page, authoring?, site.navigation),
+    "pager:collection": pager(site, page, authoring?, collectionNodes),
+    "css": stylesheet(site, settings), "authoring": authoring?,
+    "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/"
+  }
+  let context = base.merge(menus)
+  # A page keeps rendering after a theme switch that lacks its template.
+  let requested = "${site.themeDir}/${page.template}.html.ket"
+  let file = FS.File.file?(site.root + "/" + requested) then requested else "${site.themeDir}/page.html.ket"
+  let renderedPage = Marqraft.Theme.template(site.root, file, context).try
+  return bindings(renderedPage, context, authoring?)
+end
+
+let bindings(html: String, context: {String: Any}, authoring?: Bool) -> String or! String do
+  # Template output contains <marqraft- only for content and action bindings.
+  let parts = html.split("<marqraft-")
+  return Ok(html) if parts.count < 2
+  let element = Marqraft.Content.element("<marqraft-" + parts.drop(1).join("<marqraft-")).try
+  let replacement = if element.name == "marqraft-content"
+    let source = element.attributes.get("source").or("")
+    return Error("unknown content binding: ${source}") if !["body", "title", "navigation", "pager", "menu"].contains?(source)
+    let scope = element.attributes.get("scope").or("")
+    let key = if source == "menu"
+      "menu:" + element.attributes.get("menu").or("")
+    elif source == "title"
+      "heading"
+    elif scope != ""
+      source + ":" + scope
+    else
+      source
+    end
+    return Error("unknown menu: ${element.attributes.get("menu").or("")}") if source == "menu" && !context.get(key).set?
+    return Error("unknown ${source} scope: ${scope}") if scope != "" && !context.get(key).set?
+    Marqraft.Data.text(context, key, "")
+  elif element.name == "marqraft-action" && authoring?
+    let operation = element.attributes.get("operation").or("")
+    let label = element.attributes.get("label").or("Action")
+    "<button type=\"button\" data-marq-operation=\"${Marqraft.Content.escape(operation)}\">${Marqraft.Content.escape(label)}</button>"
+  elif element.name == "marqraft-action"
+    ""
+  else
+    return Error("unknown binding element: ${element.name}")
+  end
+  return Ok(parts.first.or("") + replacement + bindings(element.tail, context, authoring?).try)
+end
+
+# Every declared setting with its stored value or default, so templates can
+# use text settings (labels, links) as well as the CSS variables.
+let settingValues(site: Site, settings: {String: Any}) -> {String: Any} do
+  let fields = Marqraft.Data.list(site.theme.get("settings").or([])).or([])
+  return fields.reduce({}) do |values, field|
+    let name = Marqraft.Data.text(field, "name", "")
+    values.put(name, Marqraft.Data.text(settings, name, Marqraft.Data.text(field, "default", "")))
+  end
+end
+
+let logo(settings: {String: Any}) -> String do
+  let path = Marqraft.Data.text(settings, "logo", "")
+  return "" if !Marqraft.Content.sitePath?(path)
+  return "<img class=\"site-logo\" src=\"${Marqraft.Content.escape(path)}\" alt=\"\">"
+end
+
+# Icon links: the site's own favicon when marqraft.jsonc sets one, otherwise
+# the icons the theme ships in its assets/ folder, served under /_theme/.
+let faviconHtml(site: Site) -> String do
+  let custom = Marqraft.Data.text(site.config, "favicon", "")
+  if custom != ""
+    return Marqraft.Content.sitePath?(custom) then "<link rel=\"icon\" href=\"${Marqraft.Content.escape(custom)}\" type=\"${mimeType(custom)}\">" else ""
+  end
+  let icons = Marqraft.Data.list(site.theme.get("favicons").or([])).or([])
+  return icons.map { |icon| themeIcon(icon) }.join("")
+end
+
+let themeIcon(icon: Any) -> String do
+  let file = Marqraft.Data.text(icon, "file", "")
+  let kind = Marqraft.Data.text(icon, "type", mimeType(file))
+  let sizes = Marqraft.Data.text(icon, "sizes", "")
+  let sizeAttribute = sizes == "" then "" else " sizes=\"${Marqraft.Content.escape(sizes)}\""
+  return Marqraft.Store.relative?(file) then "<link rel=\"icon\" href=\"/_theme/${Marqraft.Content.escape(file)}\" type=\"${Marqraft.Content.escape(kind)}\"${sizeAttribute}>" else ""
+end
+
+let mimeType(path: String) -> String do
+  let types = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+    ".svg": "image/svg+xml", ".ico": "image/x-icon", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+    ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".woff": "font/woff", ".pdf": "application/pdf"
+  }
+  return types.get(FS.Path.extension(path).lowerCase).or("application/octet-stream")
+end
+
+foul compiler -> String = ENV.get("TEY_KEX").or("kex")
+
+# The context travels as an Erlang term: decoding it is immediate, where
+# parsing JSON in Kex dominated render time for pages with large CSS.
+let runnerSource(path: String) -> String do
+  return "using FS\nusing Template\nmain(args) do\n  let context = Erlang.Erlang.binary_to_term(Erlang.Base64.decode(FS.File.read(args.first.try).try))\n  let render = Template.html(Kex.embed(" + JSON.stringify(path) + "))\n  IO.print(render(context))\nend\n"
+end
+
+# Theme CSS reads settings as --marq-<name> custom properties; values are
+# validated against the theme's settings schema before they reach CSS.
+foul stylesheet(site: Site, settings: {String: Any}) -> String do
+  let css = FS.File.read(Marqraft.Store.safePath(site.root, site.themeDir + "/style.css").try).try
+  let fields = Marqraft.Data.list(site.theme.get("settings").or([])).or([])
+  let variables = fields.map { |field| cssVariable(field, settings) }.join("")
+  return css + "\n:root{${variables}}"
+end
+
+let cssVariable(field: Any, settings: {String: Any}) -> String do
+  let name = Marqraft.Data.text(field, "name", "")
+  let kind = Marqraft.Data.text(field, "type", "text")
+  let fallback = Marqraft.Data.text(field, "default", "")
+  let value = Marqraft.Data.text(settings, name, fallback)
+  return "" if !Marqraft.Document.slug?(name)
+  if kind == "color"
+    let chosen = color?(value) then value else fallback
+    return color?(chosen) then "--marq-${name}:${chosen};" else ""
+  end
+  if kind == "number"
+    let low = Marqraft.Data.integer(field, "min", 0)
+    let high = Marqraft.Data.integer(field, "max", 100000)
+    let unit = Marqraft.Data.text(field, "unit", "px")
+    let number = bounded(Integer.parse(value).or(Integer.parse(fallback).or(low)), low, high)
+    return ["px", "rem", "em", "%", ""].contains?(unit) then "--marq-${name}:${number}${unit};" else ""
+  end
+  return ""
+end
+
+let color?(text: String) -> Bool do
+  return text.startsWith?("#") && [4, 7].contains?(text.count) && text.drop(1).chars.all? { |c| "0123456789abcdefABCDEF".contains?(c.string) }
+end
+
+foul navigation(site: Site, nodes: [Any], authoring?: Bool, current: String) -> String do
+  let items = nodes.map do |node|
+    let id = Marqraft.Data.text(node, "id", "")
+    let children = Marqraft.Data.list(Marqraft.Data.object(node).or({}).get("children").or([])).or([])
+    let nested = navigation(site, children, authoring?, current)
+    match Marqraft.Project.page(site, id) do
+      Error(_) => nested
+      Ok(page) => do
+        if page.draft? && !authoring?
+          nested
+        else
+          let marker = page.draft? then " <small class=\"marq-draft\">Draft</small>" else ""
+          let active = page.id == current then " aria-current=\"page\"" else ""
+          "<li><a href=\"${Marqraft.Content.escape(page.path)}\"${active}>${Marqraft.Content.escape(page.title)}${marker}</a>${nested}</li>"
+        end
+      end
+    end
+  end.join("")
+  return items.empty? then "" else "<ul>${items}</ul>"
+end
+
+# Typed accessors: without them the checker can resolve .path on an inferred
+# match binding to an unrelated record with the same field name.
+let titleOf(page: Page) -> String = page.title
+let pathOf(page: Page) -> String = page.path
+
+let childrenOf(node: Any) -> [Any] do
+  return Marqraft.Data.list(Marqraft.Data.object(node).or({}).get("children").or([])).or([])
+end
+
+let containsPage?(node: Any, id: String) -> Bool do
+  return Marqraft.Data.text(node, "id", "") == id || childrenOf(node).any? { |child| containsPage?(child, id) }
+end
+
+# The top-level navigation entries: one link per collection. The collection
+# holding the current page is marked aria-current="true", the page itself "page".
+foul collectionsHtml(site: Site, current: String, authoring?: Bool) -> String do
+  let items = site.navigation.map do |node|
+    let id = Marqraft.Data.text(node, "id", "")
+    match Marqraft.Project.page(site, id) do
+      Error(_) => ""
+      Ok(page) => do
+        if page.draft? && !authoring?
+          ""
+        else
+          let active = if page.id == current
+            " aria-current=\"page\""
+          elif containsPage?(node, current)
+            " aria-current=\"true\""
+          else
+            ""
+          end
+          let marker = page.draft? then " <small class=\"marq-draft\">Draft</small>" else ""
+          "<li><a href=\"${Marqraft.Content.escape(page.path)}\"${active}>${Marqraft.Content.escape(page.title)}${marker}</a></li>"
+        end
+      end
+    end
+  end.join("")
+  return items.empty? then "" else "<ul>${items}</ul>"
+end
+
+foul menuContext(site: Site, page: Page, ids: [String], authoring?: Bool, values: {String: Any}) -> {String: Any} do
+  return values if ids.empty?
+  let id = ids.first.or("")
+  return menuContext(site, page, ids.drop(1), authoring?, values.put("menu:" + id, menuHtml(site, page, id, authoring?)))
+end
+
+# A theme menu as a list of links. Links to drafts only appear while authoring.
+foul menuHtml(site: Site, current: Page, id: String, authoring?: Bool) -> String do
+  let items = Marqraft.Project.menuItems(site, id).map do |item|
+    let label = Marqraft.Content.escape(Marqraft.Data.text(item, "label", ""))
+    let pageId = Marqraft.Data.text(item, "page", "")
+    let url = Marqraft.Data.text(item, "url", "")
+    match site.pages.find { |page| pageId != "" && page.id == pageId } do
+      Just(page) => do
+        if page.draft? && !authoring?
+          ""
+        else
+          let active = page.id == current.id then " aria-current=\"page\"" else ""
+          "<li><a href=\"${Marqraft.Content.escape(page.path)}\"${active}>${label}</a></li>"
+        end
+      end
+      None => do
+        if pageId != "" || Marqraft.Content.safeURL(url) == "#"
+          ""
+        else
+          "<li><a href=\"${Marqraft.Content.escape(Marqraft.Content.safeURL(url))}\">${label}</a></li>"
+        end
+      end
+    end
+  end.join("")
+  let list = "<ul class=\"marq-menu\">${items}</ul>"
+  return authoring? then "<div data-marq-menu=\"${Marqraft.Content.escape(id)}\">${list}</div>" else list
+end
+
+# Reading order follows the navigation tree, depth first; published output
+# skips drafts so the pager never links to a missing page.
+foul sequence(site: Site, nodes: [Any], authoring?: Bool) -> [Page] do
+  return [] if nodes.empty?
+  let node = nodes.first.or({})
+  let id = Marqraft.Data.text(node, "id", "")
+  let children = Marqraft.Data.list(Marqraft.Data.object(node).or({}).get("children").or([])).or([])
+  let rest = sequence(site, children, authoring?) + sequence(site, nodes.drop(1), authoring?)
+  match Marqraft.Project.page(site, id) do
+    Ok(page) => (page.draft? && !authoring?) then rest else [page] + rest
+    Error(_) => rest
+  end
+end
+
+let neighbours(order: [Page], id: String, previous: Page?) -> (Page?, Page?) do
+  return (None, None) if order.empty?
+  let head = order.first.try
+  return (previous, order.drop(1).first) if head.id == id
+  return neighbours(order.drop(1), id, Just(head))
+end
+
+foul pager(site: Site, page: Page, authoring?: Bool, nodes: [Any]) -> String do
+  let (previous, following) = neighbours(sequence(site, nodes, authoring?), page.id, None)
+  let before = match previous do
+    Just(item) => "<a class=\"marq-pager-previous\" rel=\"prev\" href=\"${Marqraft.Content.escape(item.path)}\"><small>Previous</small><span>${Marqraft.Content.escape(item.title)}</span></a>"
+    None => "<span></span>"
+  end
+  let after = match following do
+    Just(item) => "<a class=\"marq-pager-next\" rel=\"next\" href=\"${Marqraft.Content.escape(item.path)}\"><small>Next</small><span>${Marqraft.Content.escape(item.title)}</span></a>"
+    None => "<span></span>"
+  end
+  return "" if !previous.set? && !following.set?
+  return "<nav class=\"marq-pager\" aria-label=\"Reading order\">${before}${after}</nav>"
+end
+
+let bounded(value: Integer, low: Integer, high: Integer) -> Integer do
+  return low if value < low
+  return high if value > high
+  return value
+end
+
+foul template(root: String, relative: String, context: {String: Any}) -> String or! String do
+  let source = Marqraft.Store.safePath(root, relative).try
+  let template = FS.File.read(source).try
+  let digest = Digest.sha256(template)
+  let directory = ".marqraft/cache/renderer-v3-${digest}"
+  # The template path was validated above; the cache path is derived from a digest.
+  let cache = root + "/" + directory
+  let beam = cache + "/kex_main.beam"
+  if !FS.File.file?(beam)
+    let runner = runnerSource(source)
+    Marqraft.Store.write(root, directory + "/main.kex", runner).try
+    let compilation = Process.run(compiler, ["--compile", "-o", cache, cache + "/main.kex"], 60000).try
+    # With this block ending in the conditional return, the first render
+    # returned None instead of a Result; keep a statement after the check.
+    let failed = compilation.exitCode != 0
+    return Error("theme compilation failed: ${compilation.stderr}") if failed
+    let _ = failed
+  end
+  let input = directory + "/input-${Marqraft.Store.identifier}.term"
+  # FS writes Kex Binary values, not raw terms, so the term is base64 text.
+  return Error("cannot write template input") if !FS.File.write(root + "/" + input, Erlang.Base64.encode(Erlang.Erlang.term_to_binary(context)))
+  let result = Process.run(compiler, ["--run", beam, "--", root + "/" + input], 15000)
+  let _ = FS.File.delete(root + "/" + input)
+  let rendered = result.try
+  return Error("theme render failed: ${rendered.stderr}") if rendered.exitCode != 0
+  return Ok(rendered.stdout)
+end

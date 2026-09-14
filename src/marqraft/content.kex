@@ -1,0 +1,199 @@
+module Marqraft.Content
+
+using URI
+using Parsing
+using Template
+using Marqraft.Markdown, only: [MdBlock]
+
+record Element do
+  name : String
+  attributes : {String: String}
+  body : String
+  source : String
+  tail : String
+end
+
+let escape(text: String) -> String do
+  return Template.escapeHtml(text)
+end
+
+let unescape(text: String) -> String do
+  return text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'").replace("&amp;", "&")
+end
+
+# A path within the site (for images, favicons): absolute, not protocol-relative,
+# and made of project-relative segments.
+let sitePath?(text: String) -> Bool do
+  return text.startsWith?("/") && !text.startsWith?("//") && Marqraft.Store.relative?(text.drop(1)) && safeURL(text) != "#"
+end
+
+let safeURL(url: String) -> String do
+  match URI.fromIRI(url) do
+    Error(_) => "#"
+    Ok(reference) => do
+      let scheme = reference.scheme.or("")
+      return "#" if !["", "https", "http", "mailto"].contains?(scheme)
+      return "#" if scheme == "" && reference.string.startsWith?("//")
+      return reference.string
+    end
+  end
+end
+
+# Reads one balanced element. Quotes are scanned before looking for >;
+# nested elements are consumed recursively, never by a matching-tag regex.
+let element(source: String) -> Element or! String do
+  return Error("expected an opening element") if !source.startsWith?("<") || source.startsWith?("</")
+  let stop = tagEnd(source, 1, "").try
+  let header = source.drop(1).take(stop - 1)
+  let name = header.chars.takeWhile { |c| c.letter? || c.digit? || c == '-' }.map { |c| c.string }.join("")
+  return Error("invalid element name") if name.empty?
+  let attrs = attributes(header.drop(name.count).trim, {}).try
+  let remaining = source.drop(stop + 1)
+  if header.endsWith?("/")
+    return Ok(Element { name, attributes: attrs, body: "", source: source.take(stop + 1), tail: remaining })
+  end
+  let consumed = bodyEnd(remaining, name, 0).try
+  let size = stop + 1 + consumed + name.count + 3
+  return Ok(Element { name, attributes: attrs, body: remaining.take(consumed), source: source.take(size), tail: source.drop(size) })
+end
+
+let tagEnd(source: String, at: Integer, quote: String) -> Integer or! String do
+  return Error("unclosed element header") if at >= source.count
+  let c = source.drop(at).take(1)
+  if quote != ""
+    return tagEnd(source, at + 1, c == quote then "" else quote)
+  end
+  return Ok(at) if c == ">"
+  return tagEnd(source, at + 1, c == "\"" || c == "'" then c else "")
+end
+
+let attributes(source: String, attrs: {String: String}) -> {String: String} or! String do
+  let cursor = Input { input: source }.whiteSpaces
+  return Ok(attrs) if cursor.atEnd? || cursor.remaining == "/"
+  let (key, afterKey) = cursor.takeWhile { |c| c.alpha? || c.digit? || c == '-' || c == '_' }
+  return Error("invalid or duplicate attribute") if key.empty? || attrs.get(key).set?
+  let (_, afterEquals) = afterKey.whiteSpaces.char('=').try
+  let (quote, afterQuote) = afterEquals.whiteSpaces.charWhen { |c| c == '\"' || c == '\'' }.try
+  let (raw, closing) = afterQuote.takeWhile { |c| c != quote }
+  let (_, tail) = closing.char(quote).try
+  return attributes(tail.remaining, attrs.put(key, unescape(raw)))
+rescue |error|
+  return Error("invalid attribute: ${error}")
+end
+
+# Jumps from one "<" to the next; text between tags is never scanned by character.
+let bodyEnd(source: String, name: String, at: Integer) -> Integer or! String do
+  let parts = source.drop(at).split("<")
+  return Error("unclosed ${name}") if parts.count < 2
+  let opening = at + parts.first.or("").count
+  let rest = source.drop(opening)
+  return Ok(opening) if rest.startsWith?("</${name}>")
+  return Error("mismatched closing element") if rest.startsWith?("</")
+  let child = element(rest).try
+  return bodyEnd(source, name, opening + child.source.count)
+end
+
+foul render(source: String, authoring?: Bool, root: String = "", definitions: [Any] = []) -> String do
+  return renderLines(source.split("\n"), authoring?, "", root, definitions)
+end
+
+foul renderLines(lines: [String], authoring?: Bool, output: String, root: String, definitions: [Any]) -> String do
+  return output if lines.empty?
+  let line = lines.first.or("")
+  return renderLines(lines.drop(1), authoring?, output, root, definitions) if line.trim.empty?
+  if line.trim.startsWith?("<")
+    let source = lines.join("\n")
+    match element(source) do
+      Ok(node) => do
+        let html = renderElement(node, authoring?, root, definitions)
+        return renderLines(node.tail.split("\n"), authoring?, output + original(html, node.source, authoring?), root, definitions)
+      end
+      Error(_) => return output + fallback(withoutTrailingNewlines(source), authoring?)
+    end
+  end
+  # A fenced body can contain apparent custom tags; keep it as one Markdown slice.
+  if line.trim.startsWith?("```")
+    let middle = lines.drop(1).takeWhile { |item| !item.trim.startsWith?("```") }
+    let size = middle.count + 2
+    let fenceSource = lines.take(size).join("\n")
+    let fenceHtml = authoring? then Marqraft.Markdown.toAuthoringHtml(fenceSource) else Marqraft.Markdown.toHtml(fenceSource)
+    return renderLines(lines.drop(size), authoring?, output + original(fenceHtml, fenceSource, authoring?), root, definitions)
+  end
+  let available = lines.takeWhile { |item| !item.trim.startsWith?("<") && !item.trim.startsWith?("```") }
+  let (block, remaining) = takeMarkdown(available)
+  let count = available.count - remaining.count
+  # A block parser may consume the blank line after its block; that line separates blocks.
+  let raw = withoutTrailingNewlines(lines.take(count).join("\n"))
+  let html = unsupported?(raw) then fallback(raw, authoring?) else Marqraft.Markdown.renderBlock(block, !authoring?)
+  return renderLines(lines.drop(count), authoring?, output + original(html, raw, authoring?), root, definitions)
+end
+
+foul takeMarkdown(lines: [String]) -> (MdBlock, [String]) do
+  let line = lines.first.or("")
+  let level = Marqraft.Markdown.headingLevel(line)
+  return (Marqraft.Markdown.Heading(level, line.trim.drop(level).trim), lines.drop(1)) if level > 0
+  return (Marqraft.Markdown.Rule, lines.drop(1)) if Marqraft.Markdown.rule?(line)
+  return Marqraft.Markdown.takeQuote(lines) if line.trim.startsWith?("> ") || line.trim == ">"
+  return Marqraft.Markdown.takeTable(lines) if Marqraft.Markdown.tableStart?(lines)
+  return Marqraft.Markdown.takeList(lines) if Marqraft.Markdown.bulletMarker(line) != "" || Marqraft.Markdown.numberMarker(line) != ""
+  return Marqraft.Markdown.takeParagraph(lines)
+end
+
+let unsupported?(source: String) -> Bool do
+  return source.contains?("][") || source.contains?("]:") || source.contains?("[^ ") || source.contains?("\n===") || source.startsWith?("    ") || source.startsWith?("~~~")
+end
+
+let original(html: String, source: String, authoring?: Bool) -> String do
+  return html if !authoring?
+  let at = html.indexOf('>').or(-1)
+  return html if at < 0
+  return html.take(at) + " data-marq-original=\"${escape(source)}\"" + html.drop(at)
+end
+
+foul renderElement(node: Element, authoring?: Bool, root: String = "", definitions: [Any] = []) -> String do
+  let definition = definitions.find { |item| Marqraft.Data.text(item, "element", "") == node.name && Marqraft.Data.text(item, "template", "") != "" }
+  if definition.set? && root != ""
+    return Marqraft.Blocks.render(root, node, definition.try, definitions, authoring?).or(fallback(node.source, authoring?))
+  end
+  let attrs = node.attributes
+  if node.name == "marqraft-code"
+    let meta = authoring? then " data-marq-code=\"${escape(JSON.stringify(attrs))}\"" else ""
+    let filename = attrs.get("filename").or("")
+    let caption = attrs.get("caption").or("")
+    # The editor reads code as plain text; highlighting is for published pages.
+    let highlighted? = !authoring? && attrs.get("language").or("") == "kex"
+    let code = highlighted? then Marqraft.Highlight.highlight(unescape(node.body)) else escape(unescape(node.body))
+    return "<figure class=\"marq-code\"${meta}><figcaption>${escape(filename)}</figcaption><pre class=\"code\"><code>${code}</code></pre><small>${escape(caption)}</small></figure>"
+  end
+  if node.name == "marqraft-tabs"
+    let children = areas(node.body, [], []).or([])
+    return fallback(node.source, authoring?) if children.empty?
+    let content = children.map do |child|
+      let id = child.attributes.get("id").or("")
+      let label = child.attributes.get("label").or("Tab")
+      let binding = authoring? then " data-marq-area=\"${escape(JSON.stringify(child.attributes))}\"" else ""
+      "<section class=\"marq-area\"${binding}><h3>${escape(label)}</h3><div class=\"marq-area-body\">${Marqraft.Content.render(child.body, authoring?, root, definitions)}</div></section>"
+    end.join("")
+    let tabsMeta = authoring? then " data-marq-tabs=\"${escape(JSON.stringify(attrs))}\"" else ""
+    return "<div class=\"marq-tabs\"${tabsMeta}>${content}</div>"
+  end
+  return fallback(node.source, authoring?)
+end
+
+let areas(source: String, result: [Element], ids: [String]) -> [Element] or! String do
+  return Ok(result) if source.trim.empty?
+  let child = element(source.trim).try
+  let id = child.attributes.get("id").or("")
+  return Error("tabs require uniquely identified marqraft-area children") if child.name != "marqraft-area" || id.empty? || ids.contains?(id)
+  return areas(child.tail, result + [child], ids + [id])
+end
+
+# Blank lines after a block separate it from the next one; they are not its source.
+let withoutTrailingNewlines(text: String) -> String do
+  return text.endsWith?("\n") then withoutTrailingNewlines(text.take(text.count - 1)) else text
+end
+
+let fallback(source: String, authoring?: Bool) -> String do
+  let attribute = authoring? then " data-marq-source=\"${escape(source)}\"" else ""
+  return "<pre class=\"marq-source\"${attribute}>${escape(source)}</pre>"
+end

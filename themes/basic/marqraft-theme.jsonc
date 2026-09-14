@@ -1,0 +1,38 @@
+{
+  "name": "Basic",
+  "favicons": [{ "file": "favicon.svg", "type": "image/svg+xml" }],
+  "uploads": { "images": "images" },
+  "pageTemplates": [
+    { "id": "page", "label": "Page" },
+    { "id": "landing", "label": "Landing page" }
+  ],
+  "settings": [
+    { "name": "accent", "label": "Accent color", "type": "color", "default": "#b52a35" },
+    { "name": "contentWidth", "label": "Content width", "type": "number", "unit": "px", "default": "760", "min": 480, "max": 1400 },
+    { "name": "fontSize", "label": "Font size", "type": "number", "unit": "px", "default": "17", "min": 12, "max": 32 },
+    { "name": "logo", "label": "Logo", "type": "image", "default": "" }
+  ],
+  "blocks": [
+    {
+      "id": "code", "element": "marqraft-code", "label": "Code", "body": "literal",
+      "settings": [
+        { "name": "language", "label": "Language", "type": "enum", "default": "kex", "options": ["kex", "javascript", "typescript", "html", "css", "shell", "text"] },
+        { "name": "filename", "label": "Filename", "type": "text", "default": "" },
+        { "name": "caption", "label": "Caption", "type": "text", "default": "" },
+        { "name": "line-numbers", "label": "Line numbers", "type": "toggle", "default": "false" },
+        { "name": "highlighted-lines", "label": "Highlighted lines", "type": "text", "default": "" }
+      ]
+    },
+    { "id": "tabs", "element": "marqraft-tabs", "label": "Tabs", "body": "areas", "allowedChildren": ["code", "tabs"], "settings": [] }
+  ],
+  "commands": [
+    { "id": "code", "label": "Code", "aliases": ["snippet"], "icon": "code", "regions": ["body", "area"], "kind": "insert", "block": "code", "override": true },
+    { "id": "tabs", "label": "Tabs", "aliases": ["areas"], "icon": "tabs", "regions": ["body", "area"], "kind": "insert", "block": "tabs" }
+  ],
+  "operations": [
+    { "id": "create-page", "label": "New page", "kind": "createPage", "template": "page" },
+    { "id": "upload-image", "label": "Upload image", "kind": "uploadAsset" },
+    { "id": "settings", "label": "Theme settings", "kind": "updateSettings" },
+    { "id": "navigation", "label": "Navigation", "kind": "updateNavigation" }
+  ]
+}

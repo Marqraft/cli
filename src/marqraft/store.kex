@@ -1,0 +1,112 @@
+module Marqraft.Store
+
+using Digest
+using FS
+
+# 32 random bytes as lowercase hex, from the BEAM's CSPRNG rather than a process.
+foul identifier -> String do
+  return "${Erlang.Binary.encode_hex(Erlang.Crypto.strong_rand_bytes(32), :lowercase)}"
+end
+
+# An absolute, normalized directory with no symlink on the way is already its
+# real path; only other paths pay for a realpath process.
+foul realPath(path: String) -> String or! String do
+  if path.startsWith?("/") && FS.Path.normalize(path) == path && FS.Directory.directory?(path) && !symlinkBelow?("", path.drop(1).split("/"))
+    return Ok(path)
+  end
+  let result = Process.run("realpath", ["--", path]).try
+  return Error("cannot resolve ${path}") if result.exitCode != 0
+  return Ok(result.stdout.trim)
+end
+
+let relative?(path: String) -> Bool do
+  return false if path.empty? || path.startsWith?("/") || path.contains?("\\")
+  return false if path.contains?(String.fromCodepoint(0).try) || path.contains?("\n") || path.contains?("\r")
+  return !path.split("/").any? { |part| part == ".." || part == "." || part == "" }
+end
+
+# lstat-style check without a process: read_link succeeds only on a symlink,
+# dangling or not.
+foul symlink?(path: String) -> Bool do
+  return Erlang.Erlang.element(1, Erlang.File.read_link(path)) == :ok
+end
+
+# Whether any existing component of base/parts is a symlink.
+foul symlinkBelow?(base: String, parts: [String]) -> Bool do
+  return false if parts.empty?
+  let current = base + "/" + parts.first.or("")
+  return true if symlink?(current)
+  return false if !FS.Directory.directory?(current)
+  return symlinkBelow?(current, parts.drop(1))
+end
+
+foul safePath(root: String, relative: String) -> String or! String do
+  return Error("invalid project-relative path: ${relative}") if !relative?(relative)
+  # The common case has no symlink below the root, so the joined path is safe as is.
+  return Ok(FS.Path.join(root, relative)) if !symlinkBelow?(root, relative.split("/"))
+  return resolvedThroughLinks(root, relative)
+end
+
+# A symlink is involved: resolve both ends and require the target inside the root.
+foul resolvedThroughLinks(root: String, relative: String) -> String or! String do
+  let ancestor = existingAncestor(FS.Path.join(root, relative))
+  let resolved = Process.run("realpath", ["--", root, ancestor]).try
+  let lines = resolved.stdout.trim.split("\n")
+  return Error("cannot resolve ${relative}") if resolved.exitCode != 0 || lines.count != 2
+  let base = lines.first.or("")
+  let target = lines.last.or("")
+  return Error("path escapes project through a symlink") if target != base && !target.startsWith?(base + "/")
+  return Ok(FS.Path.join(base, relative))
+end
+
+foul existingAncestor(path: String) -> String do
+  return path if FS.File.file?(path) || FS.Directory.directory?(path)
+  # A dangling symlink is neither; stop at it so realpath checks where it points.
+  return path if symlink?(path)
+  let parent = FS.Path.dirname(path)
+  return path if parent == path
+  return existingAncestor(parent)
+end
+
+foul write(root: String, relative: String, source: String) -> Void or! String do
+  let target = safePath(root, relative).try
+  return Error("cannot create parent directory") if !FS.Directory.create(FS.Path.dirname(target))
+  let temporary = target + ".marq-" + identifier
+  return Error("cannot write temporary file") if !FS.File.write(temporary, source)
+  if !FS.File.rename(temporary, target)
+    let _ = FS.File.delete(temporary)
+    return Error("atomic replacement failed")
+  end
+  return Ok(())
+end
+
+# Files below a project directory, as project-relative paths. Symlinks inside
+# listed trees are rejected.
+foul files(root: String, relative: String) -> [String] or! String do
+  let path = safePath(root, relative).try
+  return Ok([]) if !FS.Directory.directory?(path)
+  return Ok(tree(path, relative, false).try.sort)
+end
+
+# Every file below a directory, named prefix/…; visibleOnly? skips hidden
+# entries and node_modules (for theme folders).
+foul tree(directory: String, prefix: String, visibleOnly?: Bool) -> [String] or! String do
+  let names = FS.Directory.list(directory).or([]).sort
+  return collect(directory, prefix, visibleOnly?, names, [])
+end
+
+foul collect(directory: String, prefix: String, visibleOnly?: Bool, names: [String], found: [String]) -> [String] or! String do
+  return Ok(found) if names.empty?
+  let name = names.first.or("")
+  let rest = names.drop(1)
+  if visibleOnly? && (name.startsWith?(".") || name == "node_modules")
+    return collect(directory, prefix, visibleOnly?, rest, found)
+  end
+  let path = directory + "/" + name
+  let child = prefix == "" then name else prefix + "/" + name
+  return Error("symlinks are unsupported inside ${prefix}: ${child}") if symlink?(path)
+  if FS.Directory.directory?(path)
+    return collect(directory, prefix, visibleOnly?, rest, found + tree(path, child, visibleOnly?).try)
+  end
+  return collect(directory, prefix, visibleOnly?, rest, found + [child])
+end

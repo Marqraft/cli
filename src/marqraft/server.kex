@@ -1,0 +1,141 @@
+module Marqraft.Server
+
+using Marqraft.Document, only: [Page]
+using URI
+using Rodolfo
+using Marqraft.API, only: [Workspace]
+
+foul start(directory: String, port: Integer) -> Void or! String do
+  let site = Marqraft.Project.load(directory).try
+  let root = site.root
+  let token = Marqraft.Store.identifier
+  let workspace = Process.spawn(Workspace { root })
+  let router = Rodolfo.router do
+    get "/__marqraft/project" do |env|
+      if !allowedHost?(env, port)
+        textReply(403, "forbidden host")
+      else
+        jsonResult(Marqraft.API.metadata(root))
+      end
+    end
+    get "/__marqraft/document/:id" do |env|
+      if !allowedHost?(env, port)
+        textReply(403, "forbidden host")
+      else
+        jsonResult(Marqraft.API.document(root, env.param("id").or("")))
+      end
+    end
+    post "/__marqraft/:action" do |env|
+      if !authorized?(env, port, token)
+        textReply(403, "invalid authoring session or origin")
+      else
+        let body = env.request.body.to(String).try
+        if body.count > 12000000
+          textReply(413, "request too large")
+        else
+          let result = workspace.invoke(env.param("action").or(""), body).try
+          jsonReply(result.status, result.body)
+        end
+      end
+    end
+    get "/__marqraft/editor.js" do |_|
+      Response.Text { body: Kex.embed("../assets/editor.js"), headers: noCache.add("Content-Type", "text/javascript; charset=utf-8").try }
+    end
+    get "/__marqraft/editor.css" do |_|
+      Response.Text { body: Kex.embed("../assets/marqraft-author.css"), headers: noCache.add("Content-Type", "text/css; charset=utf-8").try }
+    end
+    get "/" do |env|
+      if allowedHost?(env, port)
+        Marqraft.Server.renderPage(root, "/", token)
+      else
+        textReply(403, "forbidden host")
+      end
+    end
+    get "/*path" do |env|
+      if allowedHost?(env, port)
+        let path = env.param("path").or("")
+        if path.startsWith?("_theme/")
+          Marqraft.Server.themeAsset(root, path.drop(7))
+        elif Marqraft.Server.publicFile?(root, path)
+          asset(root, path)
+        else
+          Marqraft.Server.renderPage(root, "/" + path, token)
+        end
+      else
+        textReply(403, "forbidden host")
+      end
+    end
+  end
+  IO.printLine("Marqraft: http://localhost:${port}")
+  # Browsers may resolve localhost to either loopback, so serve both. A machine
+  # without IPv6 still serves on 127.0.0.1.
+  let ipv6 = router.background("::1", port)
+  IO.printError("marq: IPv6 loopback unavailable; use http://127.0.0.1:${port}\n") if !ipv6.ok?
+  router.start("127.0.0.1", port).try
+  return Ok(())
+end
+
+let noCache -> Net.HTTP.Headers = Net.HTTP.Headers.empty.add("Cache-Control", "no-store").try.add("X-Content-Type-Options", "nosniff").try
+
+let allowedHost?(env: Rodolfo.Context, port: Integer) -> Bool do
+  let host = env.request.headers.get("Host").or("")
+  return ["localhost:${port}", "127.0.0.1:${port}", "[::1]:${port}"].contains?(host)
+end
+
+let authorized?(env: Rodolfo.Context, port: Integer, token: String) -> Bool do
+  return false if !allowedHost?(env, port)
+  let origin = env.request.headers.get("Origin").or("")
+  let parsed = URI.URL.parse(origin)
+  return false if !parsed.ok?
+  return false if !["http://localhost:${port}", "http://127.0.0.1:${port}", "http://[::1]:${port}"].contains?(parsed.try.string)
+  return env.request.headers.get("X-Marqraft-Session").or("") == token
+end
+
+foul jsonResult(result: {String: Any} or! String) -> Rodolfo.Response.Reply do
+  match result do
+    Ok(data) => Response.JSON { body: Marqraft.Data.encode(data), headers: noCache }
+    Error(message) => do
+      let error = Marqraft.API.failure(message)
+      Response.JSON { status: error.status, body: error.body, headers: noCache }
+    end
+  end
+end
+
+foul renderPage(root: String, path: String, token: String) -> Rodolfo.Response.Reply do
+  let site = Marqraft.Project.load(root).try
+  let found = site.pages.find { |item| item.path == path }
+  return Response.Text { status: 404, body: "Page not found" } if !found.set?
+  let page = found.try
+  let html = Marqraft.Theme.render(site, page, true).try
+  let author = "<meta name=\"marq-token\" content=\"${token}\"><meta name=\"marq-page\" content=\"${Marqraft.Content.escape(page.id)}\"><link rel=\"stylesheet\" href=\"/__marqraft/editor.css\"><div id=\"marq-chrome\"></div><script src=\"/__marqraft/editor.js\" defer></script>"
+  return Response.HTML { body: html.replace("</body>", author + "</body>"), headers: noCache }
+rescue |error|
+  return Response.Text { status: 500, body: "${error}", headers: noCache }
+end
+
+foul asset(root: String, relative: String) -> Rodolfo.Response.Reply do
+  let path = Marqraft.Store.safePath(root, "public/" + relative).try
+  return Response.Raw { body: FS.File.readBytes(path).try, contentType: Marqraft.Theme.mimeType(path), headers: noCache }
+rescue |error|
+  return Response.Text { status: 404, body: "asset not found" }
+end
+
+let textReply(status: Integer, body: String) -> Rodolfo.Response.Reply = Response.Text { status, body, headers: noCache }
+
+let jsonReply(status: Integer, body: String) -> Rodolfo.Response.Reply = Response.JSON { status, body, headers: noCache }
+
+foul publicFile?(root: String, relative: String) -> Bool do
+  return false if relative.empty? || relative.endsWith?("/")
+  match Marqraft.Store.safePath(root, "public/" + relative) do
+    Ok(path) => FS.File.file?(path)
+    Error(_) => false
+  end
+end
+
+foul themeAsset(root: String, relative: String) -> Rodolfo.Response.Reply do
+  let site = Marqraft.Project.load(root).try
+  let path = Marqraft.Store.safePath(root, site.themeDir + "/assets/" + relative).try
+  return Response.Raw { body: FS.File.readBytes(path).try, contentType: Marqraft.Theme.mimeType(path), headers: noCache }
+rescue |error|
+  return Response.Text { status: 404, body: "theme asset not found" }
+end

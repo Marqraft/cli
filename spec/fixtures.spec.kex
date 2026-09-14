@@ -1,0 +1,43 @@
+describe "shared content fixtures" do
+  it "renders the round-trip fixture to the committed authoring HTML" do
+    let source = FS.File.read("fixtures/content/round-trip.md").try
+    let html = Marqraft.Content.render(source, true, "", [])
+    let golden = "fixtures/content/round-trip.html"
+    if !FS.File.file?(golden)
+      assert(FS.File.write(golden, html))
+    end
+    assert(FS.File.read(golden).try == html)
+  end
+  it "recognizes every supported block and keeps the rest as source" do
+    let source = FS.File.read("fixtures/content/round-trip.md").try
+    let html = Marqraft.Content.render(source, true, "", [])
+    assert(html.contains?("data-marq-code="))
+    assert(html.contains?("data-marq-tabs="))
+    assert(html.contains?("data-marq-area=\"{&quot;id&quot;:&quot;two&quot;,&quot;label&quot;:&quot;日本語&quot;}\""))
+    assert(html.contains?("data-marq-source=\"&lt;unknown-widget"))
+    assert(html.contains?("data-marq-source=\"&lt;marqraft-tabs&gt;&lt;marqraft-area id=&quot;broken&quot;"))
+    assert(html.contains?("1 &lt; 2"))
+    let published = Marqraft.Content.render(source, false, "", [])
+    assert(!published.contains?("data-marq"))
+    assert(published.contains?("<span class=\"tok-keyword\">let</span>"))
+    assert(published.contains?("&lt;p&gt;&amp;amp;&lt;/p&gt;"))
+  end
+  it "keeps authoring code plain and ends Markdown slices at their content" do
+    let source = FS.File.read("fixtures/content/round-trip.md").try
+    let authoring = Marqraft.Content.render(source, true, "", [])
+    assert(!authoring.contains?("tok-"))
+    assert(authoring.contains?("data-marq-original=\"- first\n- second\""))
+    assert(Marqraft.Content.render(source, false, "", []).contains?("<span class=\"tok-keyword\">let</span> doubled"))
+  end
+  it "renders GitHub alerts and leaves other quotes alone" do
+    let html = Marqraft.Markdown.toHtml("> [!TIP]\n> Type **slash**.\n>\n> - a list")
+    assert(html.contains?("<div class=\"markdown-alert markdown-alert-tip\"><p class=\"markdown-alert-title\">Tip</p><div class=\"markdown-alert-body\">"))
+    assert(html.contains?("<strong>slash</strong>") && html.contains?("<li>a list</li>"))
+    assert(!html.contains?("[!TIP]"))
+    assert(Marqraft.Markdown.toHtml("> [!caution]\n> Lowercase works.").contains?("markdown-alert-caution"))
+    let plain = Marqraft.Markdown.toHtml("> [!FOO]\n> Not an alert.")
+    assert(plain.contains?("<blockquote>") && !plain.contains?("markdown-alert"))
+    let source = FS.File.read("fixtures/content/round-trip.md").try
+    assert(Marqraft.Content.render(source, true, "", []).contains?("data-marq-original=\"&gt; [!WARNING]"))
+  end
+end

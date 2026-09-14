@@ -1,0 +1,85 @@
+module Marqraft.Blocks
+
+using Marqraft.Content, only: [Element]
+
+foul render(root: String, node: Element, definition: Any, definitions: [Any], authoring?: Bool) -> String or! String do
+  let fields = Marqraft.Data.list(Marqraft.Data.object(definition).try.get("settings").or([])).try
+  Marqraft.API.validateSettings(node.attributes, fields).try
+  let bodyKind = Marqraft.Data.text(definition, "body", "none")
+  let body = if bodyKind == "literal"
+    Marqraft.Content.escape(Marqraft.Content.unescape(node.body))
+  elif bodyKind == "markdown"
+    Marqraft.Content.render(node.body, authoring?, root, definitions)
+  elif bodyKind == "areas"
+    # Areas use the same child-node model as tabs, each with its own identity.
+    let tabs = Element { ...node, name: "marqraft-tabs" }
+    let wrapped = Marqraft.Content.renderElement(tabs, authoring?, root, [])
+    let inner = wrapped.drop(wrapped.indexOf('>').or(-1) + 1)
+    inner.take(inner.count - 6)
+  else
+    return Error("bodyless block has content") if !node.body.trim.empty?
+    ""
+  end
+  let html = shell(root, definition, node.attributes, body).try
+  return Ok(html.replace(" data-marq-slot", "")) if !authoring?
+  let marker = html.indexOf('>').or(-1)
+  return Error("block template has no root element") if marker < 0
+  let id = Marqraft.Data.text(definition, "id", "")
+  return Ok(html.take(marker) + " data-marq-block=\"${Marqraft.Content.escape(id)}\" data-marq-settings=\"${Marqraft.Content.escape(JSON.stringify(node.attributes))}\"" + html.drop(marker))
+end
+
+foul shell(root: String, definition: Any, settings: {String: Any}, body: String) -> String or! String do
+  let name = Marqraft.Data.text(definition, "template", "")
+  let themeDir = Marqraft.Data.text(definition, "themeDir", "theme")
+  return Error("invalid block template") if !Marqraft.Store.relative?(name) || !name.endsWith?(".html.ket")
+  let html = Marqraft.Theme.template(root, themeDir + "/" + name, { "settings": settings, "body": body }).try.trim
+  return Error("block template must expose data-marq-slot") if Marqraft.Data.text(definition, "body", "none") != "none" && !html.contains?("data-marq-slot")
+  return Ok(html)
+end
+
+let validateRegistry(theme: {String: Any}) -> Void or! String do
+  let blocks = Marqraft.Data.list(theme.get("blocks").or([])).try
+  let blockIds = blocks.map { |block| Marqraft.Data.text(block, "id", "") }
+  let elements = blocks.map { |block| Marqraft.Data.text(block, "element", "") }
+  return Error("duplicate block registration") if blockIds.uniq.count != blockIds.count || elements.uniq.count != elements.count
+  return Error("invalid block identity") if blockIds.any? { |id| !Marqraft.Document.slug?(id) }
+  return Error("block elements must be custom HTML names") if elements.any? { |name| !name.contains?("-") || !Marqraft.Document.slug?(name) }
+  let commands = Marqraft.Data.list(theme.get("commands").or([])).try
+  let ids = commands.map { |command| Marqraft.Data.text(command, "id", "") }
+  return Error("duplicate slash command registration") if ids.uniq.count != ids.count
+  let implicit = commands.any? { |command| ["code", "heading", "list", "quote", "image", "table", "callout"].contains?(Marqraft.Data.text(command, "id", "")) && !Marqraft.Data.flag(command, "override", false) }
+  return Error("built-in command overrides must be explicit") if implicit
+  let menuIds = Marqraft.Data.list(theme.get("menus").or([])).try.map { |menu| Marqraft.Data.text(menu, "id", "") }
+  return Error("theme menus need unique identifiers") if menuIds.uniq.count != menuIds.count || menuIds.any? { |id| !Marqraft.Document.slug?(id) }
+  return Ok(())
+end
+
+foul editorTheme(root: String, theme: {String: Any}) -> {String: Any} or! String do
+  let results = Marqraft.Data.list(theme.get("blocks").or([])).try.map { |block| editorBlock(root, block) }
+  return Ok(theme.put("blocks", results.map { |result| result.try }))
+end
+
+# Pre-renders a block's template chrome with default settings, so the editor
+# can mount its node view before the first per-block preview request returns.
+foul editorBlock(root: String, block: Any) -> {String: Any} or! String do
+  let definition = Marqraft.Data.object(block).try
+  let template = Marqraft.Data.text(block, "template", "")
+  return Ok(definition) if template == ""
+  let fields = Marqraft.Data.list(definition.get("settings").or([])).try
+  let defaults = fields.reduce({}) do |values, field|
+    values.put(Marqraft.Data.text(field, "name", ""), Marqraft.Data.text(field, "default", ""))
+  end
+  let themeDir = Marqraft.Data.text(definition, "themeDir", "theme")
+  let source = FS.File.read(Marqraft.Store.safePath(root, themeDir + "/" + template).try).try
+  let key = Digest.sha256(source + JSON.stringify(definition))
+  let cache = ".marqraft/cache/block-${key}.html"
+  let html = match FS.File.read(root + "/" + cache) do
+    Ok(value) => value
+    Error(_) => do
+      let rendered = Marqraft.Blocks.shell(root, definition, defaults, "").try
+      Marqraft.Store.write(root, cache, rendered).try
+      rendered
+    end
+  end
+  return Ok(definition.put("editorHTML", html))
+end

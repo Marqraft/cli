@@ -1,0 +1,47 @@
+using Marqraft.Project
+
+describe "filesystem persistence" do
+  it "rejects traversal and symlink escapes" do
+    let root = "/private/tmp/marqraft-path-${Marqraft.Store.identifier}"
+    assert(FS.Directory.create(root))
+    assert(!Marqraft.Store.safePath(root, "../outside").ok?)
+    assert(!Marqraft.Store.safePath(root, "/absolute").ok?)
+    assert(Marqraft.Store.safePath(root, "file0.md").ok?)
+    assert(Process.run("ln", ["-s", "/private/tmp", root + "/escape"]).try.exitCode == 0)
+    assert(!Marqraft.Store.safePath(root, "escape/outside.md").ok?)
+  end
+  it "preserves stable identity and rejects stale writes and path collisions" do
+    let root = "/private/tmp/marqraft-persistence-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    let site = Marqraft.Project.load(root).try
+    let original = site.pages.first.try
+    let changed = original.source.replace("title: \"Introduction\"", "title: \"Renamed\"")
+    let saved = Marqraft.Project.save(root, original.id, original.revision, changed).try
+    assert(saved.id == original.id)
+    assert(saved.path == original.path)
+    assert(!Marqraft.Project.save(root, original.id, original.revision, original.source).ok?)
+    let draft = Marqraft.Project.createPage(root, "Second", "/second/", "page", "").try
+    assert(draft.draft?)
+    assert(!Marqraft.Project.createPage(root, "Collision", "/second/", "page", "").ok?)
+    assert(!Marqraft.Project.save(root, draft.id, draft.revision, draft.source.replace("/second/", "/")).ok?)
+    assert(FS.File.read(root + "/" + original.file).try == changed)
+  end
+  it "omits drafts, removes stale output and rejects broken draft links" do
+    let root = "/private/tmp/marqraft-build-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    let draft = Marqraft.Project.createPage(root, "Draft", "/draft/", "page", "").try
+    Marqraft.Build.run(root).try
+    assert(!FS.File.file?(root + "/dist/draft/index.html"))
+    let ready = Marqraft.Project.save(root, draft.id, draft.revision, draft.source.replace("draft: true", "draft: false")).try
+    Marqraft.Build.run(root).try
+    assert(FS.File.file?(root + "/dist/draft/index.html"))
+    Marqraft.Project.save(root, ready.id, ready.revision, draft.source).try
+    Marqraft.Build.run(root).try
+    assert(!FS.File.file?(root + "/dist/draft/index.html"))
+    let site = Marqraft.Project.load(root).try
+    let home = site.pages.find { |page| page.path == "/" }.try
+    Marqraft.Project.save(root, home.id, home.revision, home.source + "\n[Draft](/draft/)\n").try
+    assert(!Marqraft.Build.run(root).ok?)
+    assert(!FS.File.read(root + "/dist/index.html").try.contains?("/__marqraft/"))
+  end
+end

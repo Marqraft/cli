@@ -1,0 +1,32 @@
+using Marqraft.Content
+
+describe "content format" do
+  it "scans nested elements and quoted attributes without losing source" do
+    let source = "<marqraft-tabs title=\"a > b\"><marqraft-area id=\"a\" label=\"One\">## Hi\n<marqraft-code>1 &lt; 2 &amp; 3</marqraft-code></marqraft-area></marqraft-tabs>"
+    let parsed = Marqraft.Content.element(source).try
+    assert(parsed.source == source)
+    assert(parsed.tail == "")
+    assert(parsed.attributes.get("title") == Just("a > b"))
+    assert(Marqraft.Content.render(source, false, "", []).contains?("1 &lt; 2 &amp; 3"))
+  end
+  it "keeps malformed and unknown markup as source" do
+    assert(Marqraft.Content.render("<unknown>x</unknown>", true, "", []).contains?("data-marq-source"))
+    assert(Marqraft.Content.render("<marqraft-tabs><wrong></marqraft-tabs>", true, "", []).contains?("data-marq-source"))
+  end
+  it "uses public runtime type metadata for JSON validation" do
+    assert(Marqraft.Data.object(JSON.parse("{}").try).ok?)
+    assert(Marqraft.Data.list(JSON.parse("[]").try).ok?)
+    assert(Marqraft.Data.flag(JSON.parse("{\"draft\":false}").try, "draft", true) == false)
+  end
+  it "decodes JSON natively and falls back for comments and invalid input" do
+    assert(Marqraft.Data.object(Marqraft.Data.decode("{\"a\": [1, true]}").try).ok?)
+    assert(Marqraft.Data.text(Marqraft.Data.decode("{\n  // note\n  \"a\": \"b\"\n}").try, "a", "") == "b")
+    assert(!Marqraft.Data.decode("{nope").ok?)
+  end
+  it "finds substrings by character position, including after Unicode" do
+    assert(Marqraft.Inline.find("ééé<x>", "<x>", 0) == Just(3))
+    assert(Marqraft.Inline.find("abc", "d", 0) == None)
+    assert(Marqraft.Content.element("<marqraft-tabs>ő < <marqraft-area id=\"a\">x</marqraft-area></marqraft-tabs>").ok? == false)
+    assert(Marqraft.Content.element("<marqraft-tabs>ő <marqraft-area id=\"a\">x</marqraft-area></marqraft-tabs>tail").try.tail == "tail")
+  end
+end

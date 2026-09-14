@@ -1,0 +1,52 @@
+using Marqraft.Project
+
+describe "collections" do
+  it "renders collections, the current collection's pages, and a pager that stays inside it" do
+    let external = "/private/tmp/marqraft-collections-theme-${Marqraft.Store.identifier}/collections-theme"
+    Marqraft.Builtin.files("basic").entries.each do |entry|
+      let (path, source) = entry
+      let text = if path == "page.html.ket"
+        source.replace("<marqraft-content source=\"navigation\"></marqraft-content>", "<div class=\"collections\"><marqraft-content source=\"navigation\" scope=\"collections\"></marqraft-content></div><p class=\"collection\"><%= context[\"collectionTitle\"].or(\"\") %> <%= context[\"collectionPath\"].or(\"\") %></p><div class=\"members\"><marqraft-content source=\"navigation\" scope=\"collection\"></marqraft-content></div>").replace("<marqraft-content source=\"pager\"></marqraft-content>", "<marqraft-content source=\"pager\" scope=\"collection\"></marqraft-content>")
+      else
+        source
+      end
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.File.write(external + "/" + path, text))
+    end
+    let root = "/private/tmp/marqraft-collections-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, external).try
+    let site = Marqraft.Project.load(root).try
+    let intro = site.pages.find { |page| page.path == "/" }.try
+    let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
+    let overview = Marqraft.Project.createPage(root, "Overview", "/overview/", "page", intro.id).try
+    let steps = Marqraft.Project.createPage(root, "First steps", "/tutorial/first-steps/", "page", tutorial.id).try
+    Marqraft.Project.save(root, overview.id, overview.revision, overview.source.replace("draft: true", "draft: false")).try
+    Marqraft.Project.save(root, steps.id, steps.revision, steps.source.replace("draft: true", "draft: false")).try
+    let loaded = Marqraft.Project.load(root).try
+    let page = loaded.pages.find { |item| item.id == overview.id }.try
+    let html = Marqraft.Theme.render(loaded, page, false).try
+    assert(html.contains?("<div class=\"collections\"><ul><li><a href=\"/\" aria-current=\"true\">Introduction</a></li><li><a href=\"/tutorial/\">Getting started</a></li></ul></div>"))
+    assert(html.contains?("<p class=\"collection\">Introduction /</p>"))
+    assert(html.contains?("<div class=\"members\"><ul><li><a href=\"/overview/\" aria-current=\"page\">Overview</a></li></ul></div>"))
+    assert(html.contains?("rel=\"prev\" href=\"/\""))
+    assert(!html.contains?("rel=\"next\""))
+    let stepPage = loaded.pages.find { |item| item.id == steps.id }.try
+    let tutorialHtml = Marqraft.Theme.render(loaded, stepPage, true).try
+    assert(tutorialHtml.contains?("data-marq-scope=\"collection\" data-marq-collection=\"${tutorial.id}\"><ul><li><a href=\"/tutorial/first-steps/\" aria-current=\"page\">First steps</a></li></ul>"))
+    assert(tutorialHtml.contains?("<a href=\"/tutorial/\" aria-current=\"true\">Getting started</a>"))
+    assert(!Marqraft.Theme.bindings("<marqraft-content source=\"navigation\" scope=\"bogus\"></marqraft-content>", { "navigation": "" }, false).ok?)
+  end
+  it "publishes and unpublishes a page from its draft line only" do
+    let root = "/private/tmp/marqraft-publish-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "book").try
+    let draft = Marqraft.Project.createPage(root, "Tutorial", "/guides/", "landing", "").try
+    assert(draft.draft?)
+    let published = Marqraft.Project.setDraft(root, draft.id, false).try
+    assert(!published.draft?)
+    let source = FS.File.read(root + "/content/guides/index.md").try
+    assert(source == draft.source.replace("draft: true", "draft: false"))
+    assert(Marqraft.Project.setDraft(root, draft.id, true).try.draft?)
+    assert(!Marqraft.Project.setDraft(root, "missing", false).ok?)
+    assert(Marqraft.Document.withDraft("---\nid: a\ndraft: false\n---\ndraft: false in the body\n", true) == "---\nid: a\ndraft: true\n---\ndraft: false in the body\n")
+  end
+end

@@ -1,0 +1,55 @@
+module Marqraft.Scaffold
+
+foul create(directory: String, theme: String) -> Void or! String do
+  let builtIn = Marqraft.Builtin.names.contains?(theme)
+  # A theme outside marq is referenced by absolute path, so the site works from any directory.
+  let reference = builtIn then theme else Marqraft.Store.realPath(theme).or("")
+  return Error("theme must be one of ${Marqraft.Builtin.names.join(", ")}, or a directory with marqraft-theme.jsonc") if !builtIn && !FS.File.file?(reference + "/marqraft-theme.jsonc")
+  let manifestSource = builtIn then Marqraft.Builtin.files(theme).get("marqraft-theme.jsonc").or("{}") else FS.File.read(reference + "/marqraft-theme.jsonc").try
+  return Error("destination already exists") if FS.File.file?(directory) || FS.Directory.directory?(directory)
+  return Error("cannot create destination") if !FS.Directory.create(directory)
+  let root = Marqraft.Store.realPath(directory).try
+  let manifest = Marqraft.Data.object(Marqraft.Data.decode(manifestSource).try).try
+  let fields = Marqraft.Data.list(manifest.get("settings").or([])).try
+  let settings = fields.reduce({}) do |values, field|
+    values.put(Marqraft.Data.text(field, "name", ""), Marqraft.Data.text(field, "default", ""))
+  end
+  let home = Marqraft.Store.identifier
+  let tutorial = Marqraft.Store.identifier
+  let title = theme == "book" then "The Kex Book" else "My site"
+  let published = { |source| source.replace("draft: true", "draft: false") }
+  # The theme is referenced by name, not copied, so it can be switched later.
+  let files = {
+    "marqraft.jsonc": Marqraft.Data.pretty({ "title": title, "theme": reference, "settings": settings }),
+    "content/index.md": published(Marqraft.Document.create(home, "Introduction", "/", "page", Kex.embed("../themes/welcome.md"))),
+    "content/tutorial/index.md": published(Marqraft.Document.create(tutorial, "Getting started", "/tutorial/", "page", Kex.embed("../themes/tutorial.md"))),
+    ".marqraft/navigation.json": Marqraft.Data.pretty([{ "id": home, "children": [] }, { "id": tutorial, "children": [] }]),
+    "public/images/.gitkeep": "",
+    ".gitignore": "dist/\n.marqraft/cache/\n*.marq-*\n",
+    "README.md": "# ${title}\n\nRun `marq dev` to author locally and `marq build` to generate dist/.\n\nContent lives in content/, uploads in public/, and page order in .marqraft/navigation.json. The theme is set by \"theme\" in marqraft.jsonc: a built-in name, a directory in this project, or a path to a theme kept elsewhere.\n"
+  }
+  files.entries.each do |entry|
+    let (path, source) = entry
+    Marqraft.Store.write(root, path, source).try
+  end
+  IO.printLine("Created ${directory}. Run marq dev ${directory}")
+  return Ok(())
+end
+
+# Copies the site's built-in theme into themes/<name>/ and points the site at
+# the copy. Content and settings are untouched.
+foul eject(directory: String) -> String or! String do
+  let root = Marqraft.Store.realPath(directory).try
+  let config = Marqraft.Data.object(Marqraft.Data.read(Marqraft.Store.safePath(root, "marqraft.jsonc").try).try).try
+  let name = Marqraft.Data.text(config, "theme", "book")
+  return Error("theme ${name} is already part of this project") if !Marqraft.Builtin.names.contains?(name)
+  let destination = "themes/${name}"
+  let target = Marqraft.Store.safePath(root, destination).try
+  return Error("${destination} already exists") if FS.File.file?(target) || FS.Directory.directory?(target)
+  Marqraft.Builtin.files(name).entries.each do |entry|
+    let (path, source) = entry
+    Marqraft.Store.write(root, destination + "/" + path, source).try
+  end
+  Marqraft.Store.write(root, "marqraft.jsonc", Marqraft.Data.pretty(config.put("theme", "./" + destination))).try
+  return Ok(destination)
+end

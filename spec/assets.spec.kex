@@ -1,0 +1,74 @@
+using Marqraft.Project
+
+describe "theme assets, favicons and uploads" do
+  it "uses theme favicons and upload folder, lets the site override both, and builds theme assets" do
+    let external = "/private/tmp/marqraft-assets-theme-${Marqraft.Store.identifier}/assets-theme"
+    Marqraft.Builtin.files("basic").entries.each do |entry|
+      let (path, source) = entry
+      # Set the manifest fields on the parsed JSON: the basic theme declares its own.
+      let manifest = Marqraft.Data.object(Marqraft.Data.decode(Marqraft.Builtin.files("basic").get("marqraft-theme.jsonc").or("{}")).try).try
+      let icons = Marqraft.Data.decode("[{ \"file\": \"icon.png\", \"type\": \"image/png\", \"sizes\": \"32x32\" }]").try
+      let uploads = Marqraft.Data.decode("{ \"images\": \"assets/img\" }").try
+      let text = path == "marqraft-theme.jsonc" then Marqraft.Data.pretty(manifest.put("favicons", icons).put("uploads", uploads)) else source
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.File.write(external + "/" + path, text))
+    end
+    assert(FS.Directory.create(external + "/assets"))
+    # Not valid UTF-8: theme assets are copied as bytes.
+    assert(FS.File.writeBytes(external + "/assets/icon.png", Binary.fromBytes([137, 80, 78, 71, 0, 255, 254, 1])))
+
+    let root = "/private/tmp/marqraft-assets-site-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, external).try
+    let site = Marqraft.Project.load(root).try
+    assert(Digest.fileSha256(root + "/" + site.themeDir + "/assets/icon.png").try == Digest.fileSha256(external + "/assets/icon.png").try)
+    let home = site.pages.find { |page| page.path == "/" }.try
+    assert(Marqraft.Theme.render(site, home, false).try.contains?("<link rel=\"icon\" href=\"/_theme/icon.png\" type=\"image/png\" sizes=\"32x32\">"))
+
+    let uploaded = Marqraft.API.upload(root, { "name": "Photo.PNG", "base64": "iVBORw0KGgo=" }).try
+    let url = Marqraft.Data.text(uploaded, "url", "")
+    assert(url.startsWith?("/assets/img/") && url.endsWith?(".png"))
+    assert(FS.File.file?(root + "/public" + url))
+
+    Marqraft.Build.run(root).try
+    assert(Digest.fileSha256(root + "/dist/_theme/icon.png").try == Digest.fileSha256(external + "/assets/icon.png").try)
+    assert(FS.File.file?(root + "/dist" + url))
+    assert(FS.File.read(root + "/dist/index.html").try.contains?("href=\"/_theme/icon.png\""))
+
+    let revision = Digest.sha256(FS.File.read(root + "/marqraft.jsonc").try)
+    let request = Marqraft.Data.object(Marqraft.Data.decode("{\"revision\":\"${revision}\",\"settings\":{},\"favicon\":\"${url}\"}").try).try
+    Marqraft.API.updateSettings(root, request).try
+    let custom = Marqraft.Project.load(root).try
+    let html = Marqraft.Theme.render(custom, home, false).try
+    assert(html.contains?("<link rel=\"icon\" href=\"${url}\" type=\"image/png\">"))
+    assert(!html.contains?("/_theme/icon.png"))
+
+    let badRevision = Digest.sha256(FS.File.read(root + "/marqraft.jsonc").try)
+    let bad = Marqraft.Data.object(Marqraft.Data.decode("{\"revision\":\"${badRevision}\",\"settings\":{},\"favicon\":\"javascript:alert(1)\"}").try).try
+    assert(!Marqraft.API.updateSettings(root, bad).ok?)
+
+    let config = Marqraft.Data.object(Marqraft.Data.read(root + "/marqraft.jsonc").try).try
+    Marqraft.Store.write(root, "marqraft.jsonc", Marqraft.Data.pretty(config.put("uploads", Marqraft.Data.object(Marqraft.Data.decode("{\"images\":\"media/uploads\"}").try).try))).try
+    let moved = Marqraft.API.upload(root, { "name": "a.png", "base64": "iVBORw0KGgo=" }).try
+    assert(Marqraft.Data.text(moved, "url", "").startsWith?("/media/uploads/"))
+    Marqraft.Store.write(root, "marqraft.jsonc", Marqraft.Data.pretty(config.put("uploads", Marqraft.Data.object(Marqraft.Data.decode("{\"images\":\"_theme/x\"}").try).try))).try
+    assert(!Marqraft.Project.load(root).ok?)
+    assert(!Marqraft.Document.urlPath?("/_theme/"))
+  end
+  it "saves theme settings while values from another theme are still stored" do
+    let root = "/private/tmp/marqraft-stale-settings-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "book").try
+    let config = Marqraft.Data.object(Marqraft.Data.read(root + "/marqraft.jsonc").try).try
+    let settings = Marqraft.Data.object(config.get("settings").or({})).try.put("label", "Guide")
+    Marqraft.Store.write(root, "marqraft.jsonc", Marqraft.Data.pretty(config.put("settings", settings))).try
+    let revision = Digest.sha256(FS.File.read(root + "/marqraft.jsonc").try)
+    let request = Marqraft.Data.object(Marqraft.Data.decode("{\"revision\":\"${revision}\",\"settings\":{\"accent\":\"#225588\"}}").try).try
+    Marqraft.API.updateSettings(root, request).try
+    let saved = Marqraft.Data.object(Marqraft.Data.read(root + "/marqraft.jsonc").try).try
+    let values = Marqraft.Data.object(saved.get("settings").or({})).try
+    assert(Marqraft.Data.text(values, "accent", "") == "#225588")
+    assert(Marqraft.Data.text(values, "label", "") == "Guide")
+    let latest = Digest.sha256(FS.File.read(root + "/marqraft.jsonc").try)
+    let unknown = Marqraft.Data.object(Marqraft.Data.decode("{\"revision\":\"${latest}\",\"settings\":{\"label\":\"x\"}}").try).try
+    assert(!Marqraft.API.updateSettings(root, unknown).ok?)
+  end
+end

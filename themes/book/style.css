@@ -1,0 +1,57 @@
+*{box-sizing:border-box}
+html{color:#1f2330;background:#fdfcf9;font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;font-size:var(--marq-fontSize,17px);line-height:1.7;-webkit-font-smoothing:antialiased}
+body{margin:0}
+a{color:var(--marq-accent,#b52a35)}
+.book-layout{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:100vh}
+.book-sidebar{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:28px 18px;background:#f5f2ec;border-right:1px solid #e6e1d8;font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
+.book-brand{display:flex;align-items:center;gap:10px;padding:0 10px;color:inherit;text-decoration:none;font:700 18px/1.3 ui-sans-serif,system-ui,sans-serif;margin-bottom:24px}
+.site-logo{height:28px;max-width:140px;object-fit:contain}
+.site-navigation ul{list-style:none;margin:0;padding:0}
+.site-navigation ul ul{margin:2px 0 6px 12px;padding-left:8px;border-left:1px solid #e0dacf}
+.site-navigation a{display:block;padding:5px 10px;border-radius:6px;color:#3b4051;text-decoration:none}
+.site-navigation a:hover{background:#ebe6dc}
+.site-navigation a[aria-current=page]{background:#fff;color:var(--marq-accent,#b52a35);font-weight:600;box-shadow:0 1px 2px #0000000f}
+.marq-draft{margin-left:6px;padding:0 6px;border-radius:4px;background:#ece3cf;color:#7a6331;font-size:11px;font-weight:600}
+.book-main{min-width:0;padding:64px 56px 32px}
+.site-content{max-width:var(--marq-contentWidth,760px);margin:0 auto}
+.site-content h1{font-size:2.6em;line-height:1.15;letter-spacing:-.02em;margin:0 0 .6em}
+.site-content h2{color:var(--marq-accent,#b52a35);font-size:21pt;line-height:1.3;margin:1.6em 0 .5em}
+.site-content h3{font-size:1.3em;margin:1.4em 0 .4em}
+.site-content p{margin:1em 0}
+.site-content img{max-width:100%;border-radius:6px}
+.site-content code{font:.88em ui-monospace,"SF Mono",Menlo,monospace}
+.site-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:#efebe3}
+.site-content pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1e2230;color:#e9ebf2;padding:18px 20px;border-radius:10px;font-size:14px;line-height:1.6}
+.site-content blockquote{border-left:3px solid var(--marq-accent,#b52a35);margin:1.5em 0;padding:.2em 1.2em;color:#4b5060}
+.site-content table{border-collapse:collapse;width:100%;font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
+.site-content td,.site-content th{border-bottom:1px solid #e3ded4;padding:8px 10px;text-align:left}
+.site-content th{font-weight:600}
+.marq-code{margin:1.6em 0}
+.marq-code figcaption{font:13px ui-monospace,monospace;color:#6d7180;margin-bottom:6px}
+.marq-code small{display:block;font:13px ui-sans-serif,system-ui,sans-serif;color:#6d7180;margin-top:6px}
+.marq-code pre{margin:0}
+.marq-tabs{border:1px solid #e3ded4;border-radius:10px;padding:8px 20px;margin:1.6em 0;background:#fff}
+.marq-area+.marq-area{border-top:1px solid #e3ded4}
+.marq-area h3{margin:12px 0 0;font:600 13px ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.06em;color:#6d7180}
+.markdown-alert{margin:1.6em 0;padding:12px 20px;border-radius:10px;border:1px solid #e3ded4;border-left:4px solid #6d7180;background:#fff}
+.markdown-alert-note{border-left-color:#3b6fb6;background:#eef3fa}
+.markdown-alert-tip{border-left-color:#2f855a;background:#edf6ed}
+.markdown-alert-important{border-left-color:#7c5cc4;background:#f3effb}
+.markdown-alert-warning{border-left-color:#b7791f;background:#fbf3e4}
+.markdown-alert-caution{border-left-color:#c53030;background:#fbecea}
+.markdown-alert-title{margin:0 0 .2em!important;font:700 12px ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;color:#4b5060}
+.markdown-alert-body>:first-child{margin-top:0}
+.markdown-alert-body>:last-child{margin-bottom:0}
+.marq-source{border:1px dashed #b0864b}
+.marq-pager{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:var(--marq-contentWidth,760px);margin:64px auto 0;font-family:ui-sans-serif,system-ui,sans-serif}
+.marq-pager a{display:block;padding:14px 18px;border:1px solid #e3ded4;border-radius:10px;text-decoration:none;color:#1f2330}
+.marq-pager a:hover{border-color:var(--marq-accent,#b52a35)}
+.marq-pager small{display:block;color:#6d7180;font-size:12px}
+.marq-pager span{font-weight:600}
+.marq-pager-next{text-align:right;grid-column:2}
+.book-footer{max-width:var(--marq-contentWidth,760px);margin:48px auto 0;padding-top:20px;border-top:1px solid #e6e1d8;color:#8a8d98;font:13px ui-sans-serif,system-ui,sans-serif}
+.landing-header{padding:28px 5vw}
+.landing-main{max-width:var(--marq-contentWidth,760px);margin:0 auto;padding:48px 24px}
+.landing-contents{margin-top:48px;font-family:ui-sans-serif,system-ui,sans-serif}
+.book-landing .book-footer{padding:20px 24px 40px}
+@media(max-width:860px){.book-layout{display:block}.book-sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid #e6e1d8}.book-main{padding:36px 22px}.site-content h1{font-size:2em}}

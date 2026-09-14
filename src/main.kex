@@ -1,0 +1,62 @@
+using OptionParser
+
+main(rawArgs) do
+  # OTP escripts pass charlists; Kex's runner passes binaries. OTP's public
+  # Unicode conversion accepts both at this executable boundary.
+  let args = rawArgs.map { |argument| Erlang.Unicode.characters_to_binary(argument) }
+  let cli = OptionParser.define("marq", "Marqraft CLI | Local CMS and static site generator")
+    .flag("help", Just('h'), "Show help")
+    .flag("version", Just('v'), "Show version")
+    .string("theme", None, "Theme: book, basic, or a path to a theme directory", Just("book"), false)
+    .integer("port", Just('p'), "Local authoring port", Just("4173"), false)
+    .command("new", "<directory>", "Create a site", ~createSite)
+    .command("dev", "[directory]", "Author and preview locally", ~serveSite)
+    .command("build", "[directory]", "Generate static output", ~buildSite)
+    .command("eject-theme", "[directory]", "Copy the built-in theme into themes/ to customize it", ~ejectTheme)
+  let parsed = cli.parse(args)
+  if parsed.ok? && parsed.try.flagEnabled?("version")
+    IO.printLine("marq 0.1.0")
+    return System.exit(0)
+  end
+  System.exit(cli.run(args.empty? then ["--help"] else args))
+end
+
+foul createSite(options: ParsedOptions) -> Integer do
+  return fail("new requires one directory") if options.arguments.count != 1
+  Marqraft.Scaffold.create(options.arguments.first.try, options.value("theme", "book")).try
+  return 0
+rescue |error|
+  return fail("${error}")
+end
+
+foul serveSite(options: ParsedOptions) -> Integer do
+  return fail("dev accepts at most one directory") if options.arguments.count > 1
+  let port = options.integerValue("port").or(4173)
+  return fail("port must be between 1 and 65535") if port < 1 || port > 65535
+  Marqraft.Server.start(options.arguments.first.or("."), port).try
+  return 0
+rescue |error|
+  return fail("${error}")
+end
+
+foul buildSite(options: ParsedOptions) -> Integer do
+  return fail("build accepts at most one directory") if options.arguments.count > 1
+  Marqraft.Build.run(options.arguments.first.or(".")).try
+  return 0
+rescue |error|
+  return fail("${error}")
+end
+
+foul ejectTheme(options: ParsedOptions) -> Integer do
+  return fail("eject-theme accepts at most one directory") if options.arguments.count > 1
+  let destination = Marqraft.Scaffold.eject(options.arguments.first.or(".")).try
+  IO.printLine("Copied the theme to ${destination}. Edit its templates and style.css; marqraft.jsonc now points at it.")
+  return 0
+rescue |error|
+  return fail("${error}")
+end
+
+foul fail(message: String) -> Integer do
+  IO.printError("marq: ${message}\n")
+  return 1
+end

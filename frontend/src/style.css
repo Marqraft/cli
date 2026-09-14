@@ -1,0 +1,123 @@
+/*
+ * Authoring chrome shares the page with arbitrary theme CSS, so it must neither
+ * leak into the theme nor be broken by it:
+ * - no global preflight; a zero-specificity reset applies only inside .marq-ui
+ * - every utility is prefixed (mq:) and !important
+ * - design tokens are --ui-*, never names a theme is likely to use (--accent)
+ * - sizes are px, so a theme's root font size does not scale the chrome
+ */
+/* Important declarations in earlier layers win, so authoring state rules beat utilities. */
+@layer marq-state, theme, utilities;
+@import "tailwindcss/theme.css" layer(theme) prefix(mq);
+@import "tailwindcss/utilities.css" layer(utilities) important source(none);
+@source "./";
+
+:root {
+  --ui-radius: 8px;
+  --ui-background: #ffffff;
+  --ui-foreground: #18181b;
+  --ui-card: #ffffff;
+  --ui-card-foreground: #18181b;
+  --ui-popover: #ffffff;
+  --ui-popover-foreground: #18181b;
+  --ui-primary: #18181b;
+  --ui-primary-foreground: #fafafa;
+  --ui-secondary: #f4f4f5;
+  --ui-secondary-foreground: #18181b;
+  --ui-muted: #f4f4f5;
+  --ui-muted-foreground: #71717a;
+  --ui-accent: #f4f4f5;
+  --ui-accent-foreground: #18181b;
+  --ui-destructive: #dc2626;
+  --ui-border: #e4e4e7;
+  --ui-input: #e4e4e7;
+  --ui-ring: #a1a1aa;
+  --ui-success: #16a34a;
+  --ui-warning: #b45309;
+}
+
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-card: var(--ui-card);
+  --color-card-foreground: var(--ui-card-foreground);
+  --color-popover: var(--ui-popover);
+  --color-popover-foreground: var(--ui-popover-foreground);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-secondary: var(--ui-secondary);
+  --color-secondary-foreground: var(--ui-secondary-foreground);
+  --color-muted: var(--ui-muted);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-accent: var(--ui-accent);
+  --color-accent-foreground: var(--ui-accent-foreground);
+  --color-destructive: var(--ui-destructive);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-input);
+  --color-ring: var(--ui-ring);
+  --color-success: var(--ui-success);
+  --color-warning: var(--ui-warning);
+  --radius-sm: calc(var(--ui-radius) - 4px);
+  --radius-md: calc(var(--ui-radius) - 2px);
+  --radius-lg: var(--ui-radius);
+  --radius-xl: calc(var(--ui-radius) + 4px);
+  --spacing: 4px;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 14px;
+  --text-base--line-height: 22px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+}
+
+:where(.marq-ui), :where(.marq-ui) *, :where(.marq-ui) ::before, :where(.marq-ui) ::after {
+  box-sizing: border-box;
+  border: 0 solid var(--ui-border);
+}
+:where(.marq-ui) {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ui-foreground);
+  letter-spacing: normal;
+  text-transform: none;
+}
+:where(.marq-ui) :is(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  margin: 0;
+}
+:where(.marq-ui) :is(h1, h2, h3, h4, p) { margin: 0; font-size: inherit; font-weight: inherit; color: inherit; }
+:where(.marq-ui) svg { display: block; }
+:where(.marq-ui) button { cursor: pointer; }
+
+/* Authoring page layout. */
+body:has(#marq-chrome) { padding-top: 48px; }
+body.marq-previewing:has(#marq-chrome) { padding-top: 48px; }
+
+/* Editor surface inside the themed content region. */
+.marq-document { outline: none; min-height: 120px; }
+.marq-document .ProseMirror-selectednode { outline: 2px solid #a1a1aa; outline-offset: 2px; border-radius: 4px; }
+.marq-document p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #a1a1aa; float: left; height: 0; pointer-events: none; }
+.marq-document [data-node-view-content] { white-space: inherit; }
+.marq-code [data-node-view-content] { white-space: pre-wrap; }
+.marq-document .ProseMirror-gapcursor::after { border-top-color: currentColor; }
+[data-marq-title][contenteditable="true"] { outline: none; }
+[data-marq-title][contenteditable="true"]:empty::before { content: "Untitled"; color: #a1a1aa; }
+.marq-block { position: relative; }
+@layer marq-state {
+  .marq-block-bar, .marq-nav-actions, .marq-menu-actions { opacity: 0 !important; transition: opacity .12s; }
+  .marq-block:hover > .marq-block-bar, .marq-block:focus-within > .marq-block-bar, .ProseMirror-selectednode > .marq-block-bar,
+  .marq-block-bar[data-open="true"], .marq-block-bar:has([data-state="open"]),
+  .marq-nav-row:hover .marq-nav-actions, .marq-nav-actions:focus-within, .marq-nav-actions:has([data-state="open"]),
+  .marq-menu-item:hover .marq-menu-actions, .marq-menu-actions:focus-within, .marq-menu-actions:has([data-state="open"]) { opacity: 1 !important; }
+  body.marq-previewing .marq-authoring-only { display: none !important; }
+}
+.marq-nav-drop-before { box-shadow: inset 0 2px 0 #3b82f6; }
+.marq-nav-drop-after { box-shadow: inset 0 -2px 0 #3b82f6; }
+.marq-nav-drop-inside { outline: 2px solid #3b82f6; outline-offset: -2px; border-radius: 6px; }

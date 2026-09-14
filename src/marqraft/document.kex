@@ -1,0 +1,100 @@
+module Marqraft.Document
+
+using Digest
+using JSON
+using URI
+
+record Page do
+  file : String
+  id : String
+  title : String
+  description : String
+  path : String
+  draft? : Bool
+  template : String
+  body : String
+  source : String
+  revision : String
+end
+
+foul parse(source: String, file: String) -> Page or! String do
+  let lines = source.replace("\r\n", "\n").split("\n")
+  return Error("${file}: missing frontmatter") if lines.first.or("") != "---"
+  let front = lines.drop(1).takeWhile { |line| line != "---" }
+  return Error("${file}: unclosed frontmatter") if front.count + 1 >= lines.count
+  let fields = fieldsOf(front, {}).try
+  let id = fields.get("id").or("")
+  let title = fields.get("title").or("")
+  let description = fields.get("description").or("")
+  let path = fields.get("path").or("")
+  let template = fields.get("template").or("page")
+  let draft = fields.get("draft").or("")
+  return Error("${file}: id and title are required") if id.empty? || title.trim.empty?
+  return Error("${file}: invalid id") if !slug?(id)
+  return Error("${file}: path must be / or a slash-terminated URL with safe segments") if !urlPath?(path)
+  return Error("${file}: draft must be true or false") if draft != "true" && draft != "false"
+  return Error("${file}: invalid template name") if !slug?(template)
+  return Ok(Page {
+    file, id, title, description, path, template, draft?: draft == "true",
+    body: lines.drop(front.count + 2).join("\n"),
+    source, revision: Digest.sha256(source)
+  })
+end
+
+foul fieldsOf(lines: [String], fields: {String: String}) -> {String: String} or! String do
+  return Ok(fields) if lines.empty?
+  let line = lines.first.or("")
+  if line.trim.empty? || line.trim.startsWith?("#")
+    return fieldsOf(lines.drop(1), fields)
+  end
+  let at = line.indexOf(':').or(-1)
+  # Unknown YAML remains in the original frontmatter; required fields use scalars.
+  return fieldsOf(lines.drop(1), fields) if at < 1
+  let key = line.take(at).trim
+  return fieldsOf(lines.drop(1), fields) if !["id", "title", "description", "path", "draft", "template"].contains?(key)
+  return Error("duplicate frontmatter key: ${key}") if fields.get(key).set?
+  let raw = line.drop(at + 1).trim
+  let value = if raw.startsWith?("\"")
+    let decoded = Marqraft.Data.decode(raw).try
+    return Error("frontmatter ${key} must be a scalar") if Type.of(decoded).name != "String"
+    "${decoded}"
+  elif raw.startsWith?("'") && raw.endsWith?("'")
+    raw.drop(1).take(raw.count - 2).replace("''", "'")
+  else
+    raw
+  end
+  return fieldsOf(lines.drop(1), fields.put(key, value))
+end
+
+let slug?(text: String) -> Bool do
+  return !text.empty? && text.chars.all? { |c| c.letter? || c.digit? || c == '-' || c == '_' }
+end
+
+let urlPath?(path: String) -> Bool do
+  let reference = URI.parse(path)
+  return false if !reference.ok?
+  return false if reference.try.scheme.set? || reference.try.string != path
+  return true if path == "/"
+  return false if !path.startsWith?("/") || !path.endsWith?("/")
+  let core = path.drop(1).take(path.count - 2)
+  return false if core.split("/").first.or("").startsWith?("__marqraft") || core.split("/").first.or("") == "_theme"
+  return core.split("/").all? { |part| slug?(part) }
+end
+
+let create(id: String, title: String, path: String, template: String, body: String) -> String do
+  return "---\nid: ${JSON.stringify(id)}\ntitle: ${JSON.stringify(title)}\npath: ${JSON.stringify(path)}\ndraft: true\ntemplate: ${JSON.stringify(template)}\n---\n${body}"
+end
+
+let metadata(page: Page) -> {String: Any} do
+  return { "id": page.id, "title": page.title, "description": page.description, "path": page.path,
+    "draft": page.draft?, "template": page.template, "file": page.file,
+    "revision": page.revision }
+end
+
+# The source with its frontmatter draft flag set, everything else untouched.
+let withDraft(source: String, draft?: Bool) -> String do
+  let lines = source.split("\n")
+  let closing = lines.drop(1).takeWhile { |line| line.trim != "---" }.count + 1
+  let updated = lines.take(closing).map { |line| line.startsWith?("draft:") then "draft: ${draft?}" else line }
+  return (updated + lines.drop(closing)).join("\n")
+end

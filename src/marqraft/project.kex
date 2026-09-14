@@ -1,0 +1,229 @@
+module Marqraft.Project
+
+using Marqraft.Document, only: [Page]
+
+record Site do
+  root : String
+  config : {String: Any}
+  themeDir : String
+  theme : {String: Any}
+  pages : [Page]
+  navigation : [Any]
+  menus : {String: Any}
+end
+
+foul load(directory: String) -> Site or! String do
+  let root = Marqraft.Store.realPath(directory).try
+  let config = Marqraft.Data.object(Marqraft.Data.read(Marqraft.Store.safePath(root, "marqraft.jsonc").try).try).try
+  let themeDir = Marqraft.Theme.resolve(root, config).try
+  let manifest = Marqraft.Data.object(Marqraft.Data.read(Marqraft.Store.safePath(root, themeDir + "/marqraft-theme.jsonc").try).try).try
+  Marqraft.Blocks.validateRegistry(manifest).try
+  # Block templates resolve against the theme that registered them.
+  let blocks = Marqraft.Data.list(manifest.get("blocks").or([])).try.map { |block| Marqraft.Data.object(block).or({}).put("themeDir", themeDir) }
+  let theme = manifest.put("blocks", blocks)
+  let files = Marqraft.Store.files(root, "content").try.filter { |name| name.endsWith?(".md") }
+  let pages = loadPages(root, files, []).try
+  let navigation = Marqraft.Data.list(Marqraft.Data.read(Marqraft.Store.safePath(root, ".marqraft/navigation.json").try).try).try
+  validateNavigation(navigation, pages, []).try
+  let menusFile = Marqraft.Store.safePath(root, ".marqraft/menus.json").try
+  let menus = if FS.File.file?(menusFile)
+    Marqraft.Data.object(Marqraft.Data.read(menusFile).try).try
+  else
+    Marqraft.Data.object(Marqraft.Data.decode("{}").try).try
+  end
+  let site = Site { root, config, themeDir, theme, pages, navigation, menus }
+  return Error("uploads.images must be a folder inside public/, such as images or assets/images") if !uploadDirectory?(uploadDirectory(site))
+  return Ok(site)
+end
+
+foul loadPages(root: String, files: [String], pages: [Page]) -> [Page] or! String do
+  return Ok(pages) if files.empty?
+  let file = files.first.try
+  let source = FS.File.read(Marqraft.Store.safePath(root, file).try).try
+  let page = Marqraft.Document.parse(source, file).try
+  return Error("duplicate page identity: ${page.id}") if pages.any? { |other| other.id == page.id }
+  return Error("URL collision: ${page.path}") if pages.any? { |other| other.path.lowerCase == page.path.lowerCase }
+  return loadPages(root, files.drop(1), pages + [page])
+end
+
+let validateNavigation(nodes: [Any], pages: [Page], seen: [String]) -> [String] or! String do
+  return Ok(seen) if nodes.empty?
+  let node = Marqraft.Data.object(nodes.first.try).try
+  let id = Marqraft.Data.text(node, "id", "")
+  return Error("navigation has an unknown or repeated page: ${id}") if seen.contains?(id) || !pages.any? { |page| page.id == id }
+  let children = Marqraft.Data.list(node.get("children").or([])).try
+  let visited = validateNavigation(children, pages, seen + [id]).try
+  return validateNavigation(nodes.drop(1), pages, visited)
+end
+
+let page(site: Site, id: String) -> Page or! String do
+  match site.pages.find { |item| item.id == id } do
+    Just(item) => Ok(item)
+    None => Error("page not found: ${id}")
+  end
+end
+
+foul pageTemplate?(site: Site, template: String) -> Bool do
+  return Marqraft.Document.slug?(template) && FS.File.file?(site.root + "/" + site.themeDir + "/${template}.html.ket")
+end
+
+foul save(root: String, id: String, revision: String, source: String) -> Page or! String do
+  let site = load(root).try
+  let old = page(site, id).try
+  return Error("conflict: document changed on disk") if old.revision != revision
+  let updated = Marqraft.Document.parse(source, old.file).try
+  return Error("page identity cannot change") if updated.id != id
+  return Error("URL collision: ${updated.path}") if site.pages.any? { |item| item.id != id && item.path.lowerCase == updated.path.lowerCase }
+  return Error("unknown page template: ${updated.template}") if updated.template != old.template && !pageTemplate?(site, updated.template)
+  # Re-read immediately before replacement; HTTP serializes all local mutations.
+  return Error("conflict: document changed on disk") if Digest.sha256(FS.File.read(root + "/" + old.file).try) != revision
+  Marqraft.Store.write(root, old.file, source).try
+  return Ok(updated)
+end
+
+foul createPage(root: String, title: String, path: String, template: String, parent: String) -> Page or! String do
+  let site = load(root).try
+  return Error("title is required") if title.trim.empty?
+  return Error("invalid URL path: use lowercase segments like /guide/intro/") if !Marqraft.Document.urlPath?(path)
+  return Error("URL collision: ${path} is already used") if site.pages.any? { |item| item.path.lowerCase == path.lowerCase }
+  return Error("unknown page template: ${template}") if !pageTemplate?(site, template)
+  return Error("unknown parent page") if parent != "" && !site.pages.any? { |item| item.id == parent }
+  # A site-level starter overrides the theme's, so switching themes keeps it.
+  let override = FS.File.read(Marqraft.Store.safePath(root, ".marqraft/templates/${template}.md").try)
+  let starter = FS.File.read(Marqraft.Store.safePath(root, site.themeDir + "/starters/${template}.md").try)
+  let body = override.or(starter.or(""))
+  let file = path == "/" then "content/index.md" else "content${path}index.md"
+  let destination = Marqraft.Store.safePath(root, file).try
+  return Error("destination already exists: ${file}") if FS.File.file?(destination) || FS.Directory.directory?(destination)
+  let source = Marqraft.Document.create(Marqraft.Store.identifier, title, path, template, body)
+  let created = Marqraft.Document.parse(source, file).try
+  Marqraft.Store.write(root, file, source).try
+  # Unlisted pages remain available in the authoring sidebar if navigation persistence fails.
+  let node = { "id": created.id, "children": [] }
+  let nav = parent == "" then site.navigation + [node] else insertChild(site.navigation, parent, node)
+  Marqraft.Store.write(root, ".marqraft/navigation.json", Marqraft.Data.pretty(nav)).try
+  return Ok(created)
+end
+
+let insertChild(nodes: [Any], parent: String, child: Any) -> [Any] do
+  return nodes.map do |item|
+    let node = Marqraft.Data.object(item).or({})
+    let children = Marqraft.Data.list(node.get("children").or([])).or([])
+    let updated = Marqraft.Data.text(node, "id", "") == parent then children + [child] else insertChild(children, parent, child)
+    node.put("children", updated)
+  end
+end
+
+foul updateNavigation(root: String, revision: String, nodes: [Any]) -> String or! String do
+  let site = load(root).try
+  let file = Marqraft.Store.safePath(root, ".marqraft/navigation.json").try
+  return Error("conflict: navigation changed on disk") if Digest.sha256(FS.File.read(file).try) != revision
+  validateNavigation(nodes, site.pages, []).try
+  let source = Marqraft.Data.pretty(nodes)
+  Marqraft.Store.write(root, ".marqraft/navigation.json", source).try
+  return Ok(Digest.sha256(source))
+end
+
+# The items of a theme menu: the site's own list once it has saved one,
+# otherwise the defaults the theme declares. Defaults name pages by path;
+# stored items name them by identity, so moving a page keeps its link.
+let menuItems(site: Site, id: String) -> [Any] do
+  match site.menus.get(id) do
+    Just(items) => Marqraft.Data.list(items).or([])
+    None => do
+      let declared = Marqraft.Data.list(site.theme.get("menus").or([])).or([]).find { |menu| Marqraft.Data.text(menu, "id", "") == id }
+      let defaults = Marqraft.Data.list(Marqraft.Data.object(declared.or({})).or({}).get("default").or([])).or([])
+      return defaults.map { |item| defaultItem(site, item) }
+    end
+  end
+end
+
+let defaultItem(site: Site, item: Any) -> {String: Any} do
+  let label = Marqraft.Data.text(item, "label", "")
+  let path = Marqraft.Data.text(item, "path", "")
+  match site.pages.find { |page| path != "" && page.path == path } do
+    Just(page) => { "label": label, "page": page.id }
+    None => { "label": label, "url": Marqraft.Data.text(item, "url", path) }
+  end
+end
+
+let menuIds(site: Site) -> [String] do
+  return Marqraft.Data.list(site.theme.get("menus").or([])).or([]).map { |menu| Marqraft.Data.text(menu, "id", "") }
+end
+
+# Every declared menu with its current items, for the authoring API.
+let menuMap(site: Site, ids: [String], values: {String: Any}) -> {String: Any} do
+  return values if ids.empty?
+  let id = ids.first.or("")
+  return menuMap(site, ids.drop(1), values.put(id, menuItems(site, id)))
+end
+
+foul updateMenus(root: String, revision: String, menus: {String: Any}) -> String or! String do
+  let site = load(root).try
+  let file = Marqraft.Store.safePath(root, ".marqraft/menus.json").try
+  return Error("conflict: menus changed on disk") if Digest.sha256(FS.File.read(file).or("")) != revision
+  validateMenus(menus.entries, menuIds(site), site.pages).try
+  # Menus of a previously selected theme are kept for switching back.
+  let source = Marqraft.Data.pretty(site.menus.merge(menus))
+  Marqraft.Store.write(root, ".marqraft/menus.json", source).try
+  return Ok(Digest.sha256(source))
+end
+
+let validateMenus(entries: [(String, Any)], declared: [String], pages: [Page]) -> Void or! String do
+  return Ok(()) if entries.empty?
+  let (id, value) = entries.first.try
+  return Error("unknown menu: ${id}") if !declared.contains?(id)
+  let items = Marqraft.Data.list(value).try
+  return Error("menu ${id} has more than 50 items") if items.count > 50
+  let problem = items.map { |item| menuItemError(item, pages) }.find { |message| message != "" }.or("")
+  return Error(problem) if problem != ""
+  return validateMenus(entries.drop(1), declared, pages)
+end
+
+let menuItemError(item: Any, pages: [Page]) -> String do
+  let fields = Marqraft.Data.object(item).or({})
+  let label = Marqraft.Data.text(item, "label", "")
+  let page = Marqraft.Data.text(item, "page", "")
+  let url = Marqraft.Data.text(item, "url", "")
+  let message = if fields.empty?
+    "menu items must be objects"
+  elif label.trim.empty? || label.count > 80
+    "menu items need a label of at most 80 characters"
+  elif page != "" && url != ""
+    "a menu item links to a page or a URL, not both"
+  elif page != "" && !pages.any? { |candidate| candidate.id == page }
+    "menu item links to an unknown page"
+  elif page == "" && (url == "" || Marqraft.Content.safeURL(url) == "#" || url.contains?(" "))
+    "menu item URLs must be http(s), mailto or a site path"
+  else
+    ""
+  end
+  return message
+end
+
+# Publishes or unpublishes any page, such as a collection, from wherever it is
+# listed. Only the draft line changes, so an editor open on that page sees an
+# ordinary external change.
+foul setDraft(root: String, id: String, draft?: Bool) -> Page or! String do
+  let site = load(root).try
+  let old = page(site, id).try
+  let source = Marqraft.Document.withDraft(old.source, draft?)
+  let updated = Marqraft.Document.parse(source, old.file).try
+  return Error("could not change the draft state of ${old.title}") if updated.draft? != draft?
+  return Ok(updated) if source == old.source
+  Marqraft.Store.write(root, old.file, source).try
+  return Ok(updated)
+end
+
+# Where uploaded images go, inside public/: the site's own choice in
+# marqraft.jsonc ("uploads": { "images": ... }), else the theme's, else images.
+let uploadDirectory(site: Site) -> String do
+  let configured = Marqraft.Data.text(Marqraft.Data.object(site.config.get("uploads").or({})).or({}), "images", "")
+  let declared = Marqraft.Data.text(Marqraft.Data.object(site.theme.get("uploads").or({})).or({}), "images", "")
+  return configured != "" then configured else (declared != "" then declared else "images")
+end
+
+let uploadDirectory?(path: String) -> Bool do
+  let first = path.split("/").first.or("")
+  return Marqraft.Store.relative?(path) && first != "_theme" && !first.startsWith?("__marqraft")
+end

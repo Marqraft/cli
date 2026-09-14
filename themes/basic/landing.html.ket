@@ -1,0 +1,25 @@
+---
+params: [context: {String: Any}]
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= context["title"].or("") %> · <%= context["siteTitle"].or("") %></title>
+<%== context["favicon"].or("") %>
+<style><%== context["css"].or("") %></style>
+</head>
+<body>
+<header class="site-header"><a href="/"><%== context["logo"].or("") %><%= context["siteTitle"].or("") %></a></header>
+<div class="site-layout">
+<nav class="site-navigation" aria-label="Pages"><marqraft-content source="navigation"></marqraft-content></nav>
+<main class="site-content landing">
+<marqraft-content source="title"></marqraft-content>
+<marqraft-content source="body"></marqraft-content>
+<marqraft-content source="pager"></marqraft-content>
+</main>
+</div>
+<footer>Made with Marqraft</footer>
+</body>
+</html>

@@ -1,0 +1,246 @@
+module Marqraft.API
+
+using Marqraft.Document, only: [Page]
+
+record ReplyData do
+  status : Integer
+  body : String
+end
+
+record Workspace do
+  root : String
+end
+
+serving Workspace do
+  foul slot invoke(action: String, payload: String) -> Reply<ReplyData> do
+    return { reply: Marqraft.API.processRequest(@root, action, payload) }
+  end
+end
+
+foul processRequest(root: String, action: String, payload: String) -> ReplyData do
+  match perform(root, action, Marqraft.Data.object(Marqraft.Data.decode(payload).try).try) do
+    Ok(result) => ReplyData { status: 200, body: Marqraft.Data.encode(result) }
+    Error(message) => failure(message)
+  end
+rescue |error|
+  return failure("${error}")
+end
+
+let failure(message: String) -> ReplyData do
+  let status = message.contains?("conflict:") then 409 else 400
+  return ReplyData { status, body: JSON.stringify({ "error": { "kind": status == 409 then "conflict" else "validation", "message": message } }) }
+end
+
+# One clause per authoring action; the last clause rejects anything else.
+perform : String -> String -> {String: Any} -> Result<{String: Any}, String>
+
+foul perform(root, "block", data) do
+  return blockPreview(root, data)
+end
+
+foul perform(root, "save", data) do
+  let id = Marqraft.Data.text(data, "id", "")
+  let revision = Marqraft.Data.text(data, "revision", "")
+  let source = Marqraft.Data.text(data, "source", "")
+  let page = Marqraft.Project.save(root, id, revision, source).try
+  return Ok(Marqraft.Document.metadata(page))
+end
+
+foul perform(root, "publish", data) do
+  let id = Marqraft.Data.text(data, "id", "")
+  let draft = Marqraft.Data.flag(data, "draft", true)
+  let page = Marqraft.Project.setDraft(root, id, draft).try
+  return Ok(Marqraft.Document.metadata(page))
+end
+
+foul perform(root, "create", data) do
+  let title = Marqraft.Data.text(data, "title", "")
+  let path = Marqraft.Data.text(data, "path", "")
+  let template = Marqraft.Data.text(data, "template", "page")
+  let parent = Marqraft.Data.text(data, "parent", "")
+  let page = Marqraft.Project.createPage(root, title, path, template, parent).try
+  return Ok(Marqraft.Document.metadata(page))
+end
+
+foul perform(root, "navigation", data) do
+  let revision = Marqraft.Data.text(data, "revision", "")
+  let navigation = Marqraft.Data.list(data.get("navigation").or([])).try
+  let updated = Marqraft.Project.updateNavigation(root, revision, navigation).try
+  return Ok({ "revision": updated })
+end
+
+foul perform(root, "menus", data) do
+  let revision = Marqraft.Data.text(data, "revision", "")
+  let menus = Marqraft.Data.object(data.get("menus").or({})).try
+  let updated = Marqraft.Project.updateMenus(root, revision, menus).try
+  return Ok({ "revision": updated })
+end
+
+foul perform(root, "settings", data) do
+  return updateSettings(root, data)
+end
+
+foul perform(root, "upload", data) do
+  return upload(root, data)
+end
+
+foul perform(root, "operation", data) do
+  return runOperation(root, data)
+end
+
+foul perform(root, action, data) do
+  return Error("unknown authoring action: ${action}")
+end
+
+foul blockPreview(root: String, data: {String: Any}) -> {String: Any} or! String do
+  let site = Marqraft.Project.load(root).try
+  let blockId = Marqraft.Data.text(data, "id", "")
+  let blocks = Marqraft.Data.list(site.theme.get("blocks").or([])).try
+  let found = blocks.find { |item| Marqraft.Data.text(item, "id", "") == blockId }
+  return Error("unknown block: ${blockId}") if !found.set?
+  let definition = found.try
+  let fields = Marqraft.Data.list(Marqraft.Data.object(definition).try.get("settings").or([])).try
+  let settings = Marqraft.Data.object(data.get("settings").or({})).try
+  Marqraft.API.validateSettings(settings, fields).try
+  return Ok({ "html": Marqraft.Blocks.shell(root, definition, settings, "").try })
+end
+
+# A theme operation maps a declarative kind onto one of the actions above.
+foul runOperation(root: String, data: {String: Any}) -> {String: Any} or! String do
+  let site = Marqraft.Project.load(root).try
+  let id = Marqraft.Data.text(data, "id", "")
+  let operations = Marqraft.Data.list(site.theme.get("operations").or([])).try
+  let found = operations.find { |item| Marqraft.Data.text(item, "id", "") == id }
+  return Error("unknown operation: ${id}") if !found.set?
+  let kind = Marqraft.Data.text(found.try, "kind", "")
+  let input = Marqraft.Data.object(data.get("input").or({})).try
+  return operation(root, kind, input)
+end
+
+operation : String -> String -> {String: Any} -> Result<{String: Any}, String>
+
+foul operation(root, "createPage", input) do
+  return perform(root, "create", input)
+end
+
+foul operation(root, "uploadAsset", input) do
+  return perform(root, "upload", input)
+end
+
+foul operation(root, "updateSettings", input) do
+  return perform(root, "settings", input)
+end
+
+foul operation(root, "updateNavigation", input) do
+  return perform(root, "navigation", input)
+end
+
+foul operation(root, "updateMenus", input) do
+  return perform(root, "menus", input)
+end
+
+foul operation(root, kind, input) do
+  return Error("unsupported operation kind: ${kind}")
+end
+
+foul updateSettings(root: String, data: {String: Any}) -> {String: Any} or! String do
+  let site = Marqraft.Project.load(root).try
+  let source = FS.File.read(root + "/marqraft.jsonc").try
+  return Error("conflict: settings changed on disk") if Digest.sha256(source) != Marqraft.Data.text(data, "revision", "")
+  let values = Marqraft.Data.object(data.get("settings").or({})).try
+  let definitions = Marqraft.Data.list(site.theme.get("settings").or([])).try
+  validateSettings(values, definitions).try
+  let favicon = Marqraft.Data.text(data, "favicon", Marqraft.Data.text(site.config, "favicon", ""))
+  return Error("the favicon must be a path within the site, such as /images/favicon.png") if favicon != "" && !Marqraft.Content.sitePath?(favicon)
+  # Values for settings the current theme does not declare, such as those of a
+  # previous theme, stay stored; the request itself may only set declared ones.
+  let stored = Marqraft.Data.object(site.config.get("settings").or({})).or({})
+  let config = site.config.put("settings", stored.merge(values)).put("favicon", favicon)
+  let encoded = Marqraft.Data.pretty(config)
+  Marqraft.Store.write(root, "marqraft.jsonc", encoded).try
+  return Ok({ "revision": Digest.sha256(encoded), "settings": values })
+end
+
+let validateSettings(values: {String: Any}, definitions: [Any]) -> Void or! String do
+  return checkSettings(values.entries, definitions)
+end
+
+let checkSettings(entries: [(String, Any)], definitions: [Any]) -> Void or! String do
+  return Ok(()) if entries.empty?
+  let (key, value) = entries.first.try
+  let found = definitions.find { |item| Marqraft.Data.text(item, "name", "") == key }
+  return Error("unknown setting: ${key}") if !found.set?
+  return Error("setting values must be strings") if Type.of(value).name != "String"
+  let problem = settingError(found.try, key, "${value}")
+  return Error(problem) if problem != ""
+  return checkSettings(entries.drop(1), definitions)
+end
+
+# An empty string means the value is valid for its declared field type.
+let settingError(definition: Any, key: String, text: String) -> String do
+  let kind = Marqraft.Data.text(definition, "type", "text")
+  let options = Marqraft.Data.list(Marqraft.Data.object(definition).or({}).get("options").or([])).or([])
+  let number = Integer.parse(text).or(0)
+  let low = Marqraft.Data.integer(definition, "min", number)
+  let high = Marqraft.Data.integer(definition, "max", number)
+  let message = if kind == "toggle" && !["true", "false"].contains?(text)
+    "invalid toggle: ${key}"
+  elif kind == "number" && !Integer.parse(text).ok?
+    "invalid numeric setting: ${key}"
+  elif kind == "number" && (number < low || number > high)
+    "${key} must be between ${low} and ${high}"
+  elif kind == "color" && !Marqraft.Theme.color?(text)
+    "invalid color: ${key}"
+  elif kind == "image" && text != "" && !Marqraft.Content.sitePath?(text)
+    "${key} must be a path within the site, such as /images/logo.png"
+  elif kind == "enum" && !options.empty? && !options.any? { |option| "${option}" == text }
+    "invalid option for ${key}"
+  else
+    ""
+  end
+  return message
+end
+
+foul upload(root: String, data: {String: Any}) -> {String: Any} or! String do
+  let name = Marqraft.Data.text(data, "name", "")
+  let extension = FS.Path.extension(name).lowerCase
+  return Error("supported images: png, jpg, jpeg, gif, webp") if ![".png", ".jpg", ".jpeg", ".gif", ".webp"].contains?(extension)
+  let encoded = Marqraft.Data.text(data, "base64", "")
+  return Error("image exceeds 8 MB") if encoded.count > 11200000
+  let bytes = Binary.fromBase64(encoded).try
+  let site = Marqraft.Project.load(root).try
+  let path = "public/${Marqraft.Project.uploadDirectory(site)}/${Marqraft.Store.identifier}${extension}"
+  let target = Marqraft.Store.safePath(root, path).try
+  return Error("asset collision") if FS.File.file?(target)
+  return Error("cannot create the upload folder") if !FS.Directory.create(FS.Path.dirname(target))
+  let temporary = target + ".marq-upload"
+  return Error("cannot persist upload") if !FS.File.writeBytes(temporary, bytes)
+  if !FS.File.rename(temporary, target)
+    let _ = FS.File.delete(temporary)
+    return Error("cannot finalize upload")
+  end
+  return Ok({ "url": path.drop(6), "name": name })
+end
+
+foul metadata(root: String) -> {String: Any} or! String do
+  let site = Marqraft.Project.load(root).try
+  let configSource = FS.File.read(root + "/marqraft.jsonc").try
+  let navSource = FS.File.read(root + "/.marqraft/navigation.json").try
+  let menusSource = FS.File.read(root + "/.marqraft/menus.json").or("")
+  let menus = Marqraft.Project.menuMap(site, Marqraft.Project.menuIds(site), Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
+  let themeFiles = Marqraft.Store.files(root, site.themeDir).try
+  let fingerprint = themeFiles.map { |file| Digest.fileSha256(root + "/" + file).or("") }.join("")
+  return Ok({ "project": Digest.sha256(root), "config": site.config, "theme": Marqraft.Blocks.editorTheme(root, site.theme).try,
+    "themeName": Marqraft.Data.text(site.config, "theme", site.themeDir),
+    "pages": site.pages.map { |page| Marqraft.Document.metadata(page) },
+    "navigation": site.navigation, "navigationRevision": Digest.sha256(navSource),
+    "menus": menus, "menusRevision": Digest.sha256(menusSource),
+    "uploads": Marqraft.Project.uploadDirectory(site),
+    "settingsRevision": Digest.sha256(configSource), "themeRevision": Digest.sha256(fingerprint) })
+end
+
+foul document(root: String, id: String) -> {String: Any} or! String do
+  let site = Marqraft.Project.load(root).try
+  let page = Marqraft.Project.page(site, id).try
+  return Ok(Marqraft.Document.metadata(page).merge({ "source": page.source, "body": page.body, "html": Marqraft.Content.render(page.body, true, root, Marqraft.Data.list(site.theme.get("blocks").or([])).try) }))
+end

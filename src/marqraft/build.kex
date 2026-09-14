@@ -1,0 +1,60 @@
+module Marqraft.Build
+
+using Marqraft.Document, only: [Page]
+foul run(directory: String) -> Void or! String do
+  let site = Marqraft.Project.load(directory).try
+  let destination = Marqraft.Store.safePath(site.root, "dist").try
+  let ownership = ".marqraft/cache/dist-owned"
+  if FS.Directory.directory?(destination) && !FS.File.file?(site.root + "/" + ownership)
+    return Error("dist already exists and was not created by Marqraft")
+  end
+  let stage = ".marqraft/cache/build-${Marqraft.Store.identifier}"
+  let stagePath = Marqraft.Store.safePath(site.root, stage).try
+  return Error("cannot create build staging directory") if !FS.Directory.create(stagePath)
+  let pages = site.pages.filter { |page| !page.draft? }
+  let outputFiles = pages.map { |page| page.path == "/" then "index.html" else page.path.drop(1) + "index.html" }
+  let pageResults = pages.map do |page|
+    let excluded = site.pages.filter { |item| item.draft? && page.body.contains?("(${item.path})") }
+    return Error("${page.file}: link points to excluded draft ${excluded.first.try.path}") if !excluded.empty?
+    let html = Marqraft.Theme.render(site, page, false).try
+    let output = page.path == "/" then "index.html" else page.path.drop(1) + "index.html"
+    Marqraft.Store.write(site.root, stage + "/" + output, html).try
+    Ok(())
+  end
+  pageResults.each { |result| result.try }
+  let assets = Marqraft.Store.files(site.root, "public").try
+  let assetResults = assets.map do |asset|
+    let relative = asset.drop(7)
+    if !relative.endsWith?(".gitkeep")
+      return Error("asset collides with generated page: ${relative}") if outputFiles.contains?(relative)
+      return Error("asset uses reserved authoring path") if relative.startsWith?("__marqraft/") || relative.startsWith?("_theme/")
+      let target = Marqraft.Store.safePath(site.root, stage + "/" + relative).try
+      return Error("cannot create asset directory") if !FS.Directory.create(FS.Path.dirname(target))
+      let copied = FS.File.writeBytes(target, FS.File.readBytes(Marqraft.Store.safePath(site.root, asset).try).try)
+      return Error("cannot copy asset") if !copied
+      let _ = copied
+    end
+    Ok(())
+  end
+  assetResults.each { |result| result.try }
+  let themeAssets = Marqraft.Store.files(site.root, site.themeDir + "/assets").try
+  let themeResults = themeAssets.map do |asset|
+    let relative = "_theme/" + asset.drop(site.themeDir.count + 8)
+    let target = Marqraft.Store.safePath(site.root, stage + "/" + relative).try
+    return Error("cannot create theme asset directory") if !FS.Directory.create(FS.Path.dirname(target))
+    let copied = FS.File.copy(Marqraft.Store.safePath(site.root, asset).try, target)
+    return Error("cannot copy theme asset ${relative}") if !copied
+    Ok(())
+  end
+  themeResults.each { |result| result.try }
+  let backup = site.root + "/.marqraft/cache/previous-${Marqraft.Store.identifier}"
+  let existing = FS.Directory.directory?(destination)
+  return Error("cannot move previous build") if existing && !FS.File.rename(destination, backup)
+  if !FS.File.rename(stagePath, destination)
+    let _ = existing && FS.File.rename(backup, destination)
+    return Error("cannot publish staged build")
+  end
+  Marqraft.Store.write(site.root, ownership, Digest.sha256(site.root)).try
+  IO.printLine("Built ${pages.count} page(s) in ${destination}")
+  return Ok(())
+end

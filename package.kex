@@ -1,0 +1,13 @@
+package "marqraft-cli" do
+  version("0.1.0")
+  description("A local, file-based CMS and static site generator")
+  kex(">= 0.4.0-beta.2")
+
+  # Project commands, run as "tey NAME" and listed by "tey help":
+  # command("bench", run: "script/bench.kex", description: "Run the benchmarks")
+
+  entrypoint("src/main.kex")
+
+  target("marq", entrypoint: "src/main.kex")
+  tey("rodolfo", path: "vendor/rodolfo")
+end

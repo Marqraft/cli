@@ -24,8 +24,8 @@ describe "content format" do
     assert(!Marqraft.Data.decode("{nope").ok?)
   end
   it "finds substrings by character position, including after Unicode" do
-    assert(Marqraft.Inline.find("ééé<x>", "<x>", 0) == Just(3))
-    assert(Marqraft.Inline.find("abc", "d", 0) == None)
+    assert(Markdown.Inline.find("ééé<x>", "<x>", 0) == Just(3))
+    assert(Markdown.Inline.find("abc", "d", 0) == None)
     assert(Marqraft.Content.element("<marqraft-tabs>ő < <marqraft-area id=\"a\">x</marqraft-area></marqraft-tabs>").ok? == false)
     assert(Marqraft.Content.element("<marqraft-tabs>ő <marqraft-area id=\"a\">x</marqraft-area></marqraft-tabs>tail").try.tail == "tail")
   end

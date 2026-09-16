@@ -30,12 +30,12 @@ describe "shared content fixtures" do
     assert(Marqraft.Content.render(source, false, "", []).contains?("<span class=\"tok-keyword\">let</span> doubled"))
   end
   it "renders GitHub alerts and leaves other quotes alone" do
-    let html = Marqraft.Markdown.toHtml("> [!TIP]\n> Type **slash**.\n>\n> - a list")
+    let html = Markdown.toHtml("> [!TIP]\n> Type **slash**.\n>\n> - a list")
     assert(html.contains?("<div class=\"markdown-alert markdown-alert-tip\"><p class=\"markdown-alert-title\">Tip</p><div class=\"markdown-alert-body\">"))
     assert(html.contains?("<strong>slash</strong>") && html.contains?("<li>a list</li>"))
     assert(!html.contains?("[!TIP]"))
-    assert(Marqraft.Markdown.toHtml("> [!caution]\n> Lowercase works.").contains?("markdown-alert-caution"))
-    let plain = Marqraft.Markdown.toHtml("> [!FOO]\n> Not an alert.")
+    assert(Markdown.toHtml("> [!caution]\n> Lowercase works.").contains?("markdown-alert-caution"))
+    let plain = Markdown.toHtml("> [!FOO]\n> Not an alert.")
     assert(plain.contains?("<blockquote>") && !plain.contains?("markdown-alert"))
     let source = FS.File.read("fixtures/content/round-trip.md").try
     assert(Marqraft.Content.render(source, true, "", []).contains?("data-marq-original=\"&gt; [!WARNING]"))

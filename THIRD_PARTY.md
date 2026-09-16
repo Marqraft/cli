@@ -1,10 +1,9 @@
 # Third-party sources
 
-`src/marqraft/markdown.kex` adapts the Markdown parser from
-`kexhq/kex`, `tey/src/tey/docgen/md.kex`, distributed under the MIT license.
-The parser is a documented Markdown subset, not a CommonMark implementation.
-`src/marqraft/highlight.kex` adapts the Kex highlighter from the same
-directory (`highlight.kex`), MIT.
+Markdown parsing and rendering (`Markdown`, `Markdown.Inline`,
+`Markdown.Highlight`) come from the separate `markdown` package (`tey`
+dependency, `github.com/kexhq/markdown`), which carries its own
+THIRD_PARTY.md for the `kexhq/kex` sources it adapts.
 
 `frontend/src/components/ui/` follows shadcn/ui component source (MIT),
 adapted to a prefixed Tailwind build.

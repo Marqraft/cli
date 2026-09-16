@@ -10,4 +10,5 @@ package "marqraft-cli" do
 
   target("marq", entrypoint: "src/main.kex")
   tey("rodolfo", path: "vendor/rodolfo")
+  tey("markdown", git: "https://github.com/kexhq/markdown", tag: "~> 0.1")
 end

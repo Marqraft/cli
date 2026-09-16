@@ -63,11 +63,11 @@ describe "theme selection" do
     assert(!Marqraft.Scaffold.create(root + "-missing", "/private/tmp/no-such-theme").ok?)
   end
   it "highlights Kex code in published fences" do
-    let html = Marqraft.Highlight.highlight("let name = \"x<y\"\nIO.printLine(name)")
+    let html = Markdown.Highlight.highlight("let name = \"x<y\"\nIO.printLine(name)")
     assert(html.contains?("<span class=\"tok-keyword\">let</span>"))
     assert(html.contains?("<span class=\"tok-type\">IO</span>"))
     assert(html.contains?("x&lt;y"))
-    assert(Marqraft.Markdown.toHtml("```kex\nlet a = 1\n```").contains?("tok-keyword"))
-    assert(!Marqraft.Markdown.toHtml("```\nlet a = 1\n```").contains?("tok-keyword"))
+    assert(Markdown.toHtml("```kex\nlet a = 1\n```").contains?("tok-keyword"))
+    assert(!Markdown.toHtml("```\nlet a = 1\n```").contains?("tok-keyword"))
   end
 end

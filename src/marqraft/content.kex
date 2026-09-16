@@ -3,7 +3,7 @@ module Marqraft.Content
 using URI
 using Parsing
 using Template
-using Marqraft.Markdown, only: [MdBlock]
+using Markdown, only: [MdBlock]
 
 record Element do
   name : String
@@ -116,7 +116,7 @@ foul renderLines(lines: [String], authoring?: Bool, output: String, root: String
     let middle = lines.drop(1).takeWhile { |item| !item.trim.startsWith?("```") }
     let size = middle.count + 2
     let fenceSource = lines.take(size).join("\n")
-    let fenceHtml = authoring? then Marqraft.Markdown.toAuthoringHtml(fenceSource) else Marqraft.Markdown.toHtml(fenceSource)
+    let fenceHtml = authoring? then Markdown.toAuthoringHtml(fenceSource) else Markdown.toHtml(fenceSource)
     return renderLines(lines.drop(size), authoring?, output + original(fenceHtml, fenceSource, authoring?), root, definitions)
   end
   let available = lines.takeWhile { |item| !item.trim.startsWith?("<") && !item.trim.startsWith?("```") }
@@ -124,19 +124,19 @@ foul renderLines(lines: [String], authoring?: Bool, output: String, root: String
   let count = available.count - remaining.count
   # A block parser may consume the blank line after its block; that line separates blocks.
   let raw = withoutTrailingNewlines(lines.take(count).join("\n"))
-  let html = unsupported?(raw) then fallback(raw, authoring?) else Marqraft.Markdown.renderBlock(block, !authoring?)
+  let html = unsupported?(raw) then fallback(raw, authoring?) else Markdown.renderBlock(block, !authoring?)
   return renderLines(lines.drop(count), authoring?, output + original(html, raw, authoring?), root, definitions)
 end
 
 foul takeMarkdown(lines: [String]) -> (MdBlock, [String]) do
   let line = lines.first.or("")
-  let level = Marqraft.Markdown.headingLevel(line)
-  return (Marqraft.Markdown.Heading(level, line.trim.drop(level).trim), lines.drop(1)) if level > 0
-  return (Marqraft.Markdown.Rule, lines.drop(1)) if Marqraft.Markdown.rule?(line)
-  return Marqraft.Markdown.takeQuote(lines) if line.trim.startsWith?("> ") || line.trim == ">"
-  return Marqraft.Markdown.takeTable(lines) if Marqraft.Markdown.tableStart?(lines)
-  return Marqraft.Markdown.takeList(lines) if Marqraft.Markdown.bulletMarker(line) != "" || Marqraft.Markdown.numberMarker(line) != ""
-  return Marqraft.Markdown.takeParagraph(lines)
+  let level = Markdown.headingLevel(line)
+  return (Markdown.Heading(level, line.trim.drop(level).trim), lines.drop(1)) if level > 0
+  return (Markdown.Rule, lines.drop(1)) if Markdown.rule?(line)
+  return Markdown.takeQuote(lines) if line.trim.startsWith?("> ") || line.trim == ">"
+  return Markdown.takeTable(lines) if Markdown.tableStart?(lines)
+  return Markdown.takeList(lines) if Markdown.bulletMarker(line) != "" || Markdown.numberMarker(line) != ""
+  return Markdown.takeParagraph(lines)
 end
 
 let unsupported?(source: String) -> Bool do
@@ -162,7 +162,7 @@ foul renderElement(node: Element, authoring?: Bool, root: String = "", definitio
     let caption = attrs.get("caption").or("")
     # The editor reads code as plain text; highlighting is for published pages.
     let highlighted? = !authoring? && attrs.get("language").or("") == "kex"
-    let code = highlighted? then Marqraft.Highlight.highlight(unescape(node.body)) else escape(unescape(node.body))
+    let code = highlighted? then Markdown.Highlight.highlight(unescape(node.body)) else escape(unescape(node.body))
     return "<figure class=\"marq-code\"${meta}><figcaption>${escape(filename)}</figcaption><pre class=\"code\"><code>${code}</code></pre><small>${escape(caption)}</small></figure>"
   end
   if node.name == "marqraft-tabs"

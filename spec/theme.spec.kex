@@ -2,7 +2,7 @@ using Marqraft.Project
 
 describe "theme selection" do
   it "references a built-in theme by name and renders navigation and pager" do
-    let root = "/private/tmp/marqraft-theme-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-theme-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try
     assert(!FS.Directory.directory?(root + "/theme"))
     let site = Marqraft.Project.load(root).try
@@ -15,7 +15,7 @@ describe "theme selection" do
     assert(!html.contains?("marqraft-content"))
   end
   it "nests new pages under a parent and keeps drafts out of the published pager" do
-    let root = "/private/tmp/marqraft-nest-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-nest-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try
     let site = Marqraft.Project.load(root).try
     let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
@@ -30,7 +30,7 @@ describe "theme selection" do
     assert(!Marqraft.Project.createPage(root, "Orphan", "/orphan/", "page", "missing").ok?)
   end
   it "ejects the built-in theme into the project and switches to it" do
-    let root = "/private/tmp/marqraft-eject-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-eject-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "basic").try
     assert(Marqraft.Scaffold.eject(root).try == "themes/basic")
     assert(FS.File.file?(root + "/themes/basic/starters/page.md"))
@@ -44,13 +44,13 @@ describe "theme selection" do
     assert(!Marqraft.API.validateSettings({ "a": "x", "zzz": "1" }, Marqraft.Data.list(fields).try).ok?)
   end
   it "uses a theme kept outside the project and picks up its changes" do
-    let external = "/private/tmp/marqraft-external-theme-${Marqraft.Store.identifier}/docs-theme"
+    let external = "${FS.Directory.temporary}/marqraft-external-theme-${Marqraft.Store.identifier}/docs-theme"
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
       assert(FS.File.write(external + "/" + path, source))
     end
-    let root = "/private/tmp/marqraft-external-site-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-external-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     assert(Marqraft.Data.text(Marqraft.Data.read(root + "/marqraft.jsonc").try, "theme", "") == external)
     let site = Marqraft.Project.load(root).try
@@ -60,7 +60,7 @@ describe "theme selection" do
     assert(changed.themeDir != site.themeDir)
     let home = changed.pages.find { |page| page.path == "/" }.try
     assert(Marqraft.Theme.render(changed, home, false).try.contains?("body{color:#123456}"))
-    assert(!Marqraft.Scaffold.create(root + "-missing", "/private/tmp/no-such-theme").ok?)
+    assert(!Marqraft.Scaffold.create(root + "-missing", "${FS.Directory.temporary}/no-such-theme").ok?)
   end
   it "highlights Kex code in published fences" do
     let html = Markdown.Highlight.highlight("let name = \"x<y\"\nIO.printLine(name)")

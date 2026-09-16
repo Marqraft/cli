@@ -2,16 +2,16 @@ using Marqraft.Project
 
 describe "filesystem persistence" do
   it "rejects traversal and symlink escapes" do
-    let root = "/private/tmp/marqraft-path-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-path-${Marqraft.Store.identifier}"
     assert(FS.Directory.create(root))
     assert(!Marqraft.Store.safePath(root, "../outside").ok?)
     assert(!Marqraft.Store.safePath(root, "/absolute").ok?)
     assert(Marqraft.Store.safePath(root, "file0.md").ok?)
-    assert(Process.run("ln", ["-s", "/private/tmp", root + "/escape"]).try.exitCode == 0)
+    assert(Process.run("ln", ["-s", FS.Directory.temporary, root + "/escape"]).try.exitCode == 0)
     assert(!Marqraft.Store.safePath(root, "escape/outside.md").ok?)
   end
   it "preserves stable identity and rejects stale writes and path collisions" do
-    let root = "/private/tmp/marqraft-persistence-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-persistence-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "basic").try
     let site = Marqraft.Project.load(root).try
     let original = site.pages.first.try
@@ -27,7 +27,7 @@ describe "filesystem persistence" do
     assert(FS.File.read(root + "/" + original.file).try == changed)
   end
   it "omits drafts, removes stale output and rejects broken draft links" do
-    let root = "/private/tmp/marqraft-build-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-build-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "basic").try
     let draft = Marqraft.Project.createPage(root, "Draft", "/draft/", "page", "").try
     Marqraft.Build.run(root).try

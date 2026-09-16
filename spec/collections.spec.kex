@@ -2,7 +2,7 @@ using Marqraft.Project
 
 describe "collections" do
   it "renders collections, the current collection's pages, and a pager that stays inside it" do
-    let external = "/private/tmp/marqraft-collections-theme-${Marqraft.Store.identifier}/collections-theme"
+    let external = "${FS.Directory.temporary}/marqraft-collections-theme-${Marqraft.Store.identifier}/collections-theme"
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       let text = if path == "page.html.ket"
@@ -13,7 +13,7 @@ describe "collections" do
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
       assert(FS.File.write(external + "/" + path, text))
     end
-    let root = "/private/tmp/marqraft-collections-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-collections-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     let site = Marqraft.Project.load(root).try
     let intro = site.pages.find { |page| page.path == "/" }.try
@@ -37,7 +37,7 @@ describe "collections" do
     assert(!Marqraft.Theme.bindings("<marqraft-content source=\"navigation\" scope=\"bogus\"></marqraft-content>", { "navigation": "" }, false).ok?)
   end
   it "publishes and unpublishes a page from its draft line only" do
-    let root = "/private/tmp/marqraft-publish-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-publish-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try
     let draft = Marqraft.Project.createPage(root, "Tutorial", "/guides/", "landing", "").try
     assert(draft.draft?)

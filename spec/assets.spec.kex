@@ -2,7 +2,7 @@ using Marqraft.Project
 
 describe "theme assets, favicons and uploads" do
   it "uses theme favicons and upload folder, lets the site override both, and builds theme assets" do
-    let external = "/private/tmp/marqraft-assets-theme-${Marqraft.Store.identifier}/assets-theme"
+    let external = "${FS.Directory.temporary}/marqraft-assets-theme-${Marqraft.Store.identifier}/assets-theme"
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       # Set the manifest fields on the parsed JSON: the basic theme declares its own.
@@ -17,7 +17,7 @@ describe "theme assets, favicons and uploads" do
     # Not valid UTF-8: theme assets are copied as bytes.
     assert(FS.File.writeBytes(external + "/assets/icon.png", Binary.fromBytes([137, 80, 78, 71, 0, 255, 254, 1])))
 
-    let root = "/private/tmp/marqraft-assets-site-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-assets-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     let site = Marqraft.Project.load(root).try
     assert(Digest.fileSha256(root + "/" + site.themeDir + "/assets/icon.png").try == Digest.fileSha256(external + "/assets/icon.png").try)
@@ -55,7 +55,7 @@ describe "theme assets, favicons and uploads" do
     assert(!Marqraft.Document.urlPath?("/_theme/"))
   end
   it "saves theme settings while values from another theme are still stored" do
-    let root = "/private/tmp/marqraft-stale-settings-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-stale-settings-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try
     let config = Marqraft.Data.object(Marqraft.Data.read(root + "/marqraft.jsonc").try).try
     let settings = Marqraft.Data.object(config.get("settings").or({})).try.put("label", "Guide")

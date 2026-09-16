@@ -2,7 +2,7 @@ using Marqraft.Project
 
 describe "theme menus" do
   it "renders theme defaults, then the site's saved items" do
-    let external = "/private/tmp/marqraft-menu-theme-${Marqraft.Store.identifier}/menu-theme"
+    let external = "${FS.Directory.temporary}/marqraft-menu-theme-${Marqraft.Store.identifier}/menu-theme"
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       let text = if path == "marqraft-theme.jsonc"
@@ -15,7 +15,7 @@ describe "theme menus" do
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
       assert(FS.File.write(external + "/" + path, text))
     end
-    let root = "/private/tmp/marqraft-menu-site-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-menu-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     let site = Marqraft.Project.load(root).try
     let home = site.pages.find { |page| page.path == "/" }.try

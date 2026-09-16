@@ -2,7 +2,7 @@ using Marqraft.Project
 
 describe "theme template blocks" do
   it "renders a block through its Kex template with a Markdown slot" do
-    let external = "/private/tmp/marqraft-block-theme-${Marqraft.Store.identifier}/block-theme"
+    let external = "${FS.Directory.temporary}/marqraft-block-theme-${Marqraft.Store.identifier}/block-theme"
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       let text = if path == "marqraft-theme.jsonc"
@@ -15,7 +15,7 @@ describe "theme template blocks" do
     end
     assert(FS.Directory.create(external + "/blocks"))
     assert(FS.File.write(external + "/blocks/card.html.ket", "---\nparams: [context: {String: Any}]\n---\n<section class=\"card\"><h4><%= context[\"settings\"].try[\"title\"].or(\"\") %></h4><div data-marq-slot><%== context[\"body\"].or(\"\") %></div></section>"))
-    let root = "/private/tmp/marqraft-block-site-${Marqraft.Store.identifier}"
+    let root = "${FS.Directory.temporary}/marqraft-block-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     let site = Marqraft.Project.load(root).try
     let home = site.pages.find { |page| page.path == "/" }.try

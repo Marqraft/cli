@@ -35,11 +35,16 @@ jobs:
           sudo apt-get install -y cmake libgmp-dev libpcre2-dev libreadline-dev \
             libssl-dev erlang-base libboost-context-dev
 
+      # --parallel (unbounded, i.e. one job per core) OOM-kills cc1plus on
+      # this runner's 7GB: kexhq/kex@main currently also builds the LSP
+      # framework and its own test binaries alongside the compiler, and
+      # two of those compiling at once outgrows the runner. Capped to 1 to
+      # trade build time for not dying halfway through.
       - name: Build Kex and Tey
         working-directory: kex-src
         run: |
           cmake -B build -G "Unix Makefiles" -DKEX_BOOST_STATIC=ON
-          cmake --build build --parallel
+          cmake --build build --parallel 1
           make build-tey
           make tey-run
 

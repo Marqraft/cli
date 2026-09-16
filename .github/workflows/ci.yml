@@ -1,0 +1,78 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  kex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same approach as kexhq/rodolfo and kexhq/markdown's CI: the newest
+      # released Tey/Kex predates the manifest and stdlib features this
+      # package (and its rodolfo/markdown dependencies) actually need, so
+      # `kexhq/setup-tey` can't get us a working toolchain yet. Build from
+      # `main`, deliberately unpinned — see rodolfo's CI for why: a pin
+      # freezes the canary that catches compiler regressions.
+      - name: Check out Kex
+        uses: actions/checkout@v4
+        with:
+          repository: kexhq/kex
+          ref: main
+          path: kex-src
+
+      # Matches kexhq/kex's own CI (.github/workflows/ci.yml, the
+      # build-tey job) so the toolchain built here behaves the same way.
+      - name: Install Kex build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libpcre2-dev libreadline-dev \
+            libssl-dev erlang-base libboost-context-dev
+
+      - name: Build Kex and Tey
+        working-directory: kex-src
+        run: |
+          cmake -B build -G "Unix Makefiles" -DKEX_BOOST_STATIC=ON
+          cmake --build build --parallel
+          make build-tey
+          make tey-run
+
+      # `tey-run` (generated above) is a Tey launcher for this checkout; its
+      # default TEY_ERL is whatever `erl` built it on the machine that ran
+      # `make tey-run`, which is not this runner. A `tey` on PATH that
+      # forwards to it, with TEY_ERL pointed at this runner's own `erl`,
+      # keeps every later step's command (`tey install`, `tey build`, `tey
+      # test`) identical to what it was against a released toolchain.
+      - name: Put a `tey` wrapper on PATH
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/tey" <<WRAP
+          #!/bin/sh
+          export TEY_ERL="$(command -v erl)"
+          exec "$GITHUB_WORKSPACE/kex-src/tey-run" "\$@"
+          WRAP
+          chmod +x "$HOME/.local/bin/tey"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - run: tey install
+      - run: tey build
+      - run: tey test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

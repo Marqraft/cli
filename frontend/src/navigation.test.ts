@@ -33,6 +33,10 @@ describe('navigation tree operations', () => {
     expect(suggestPath('/tutorial/', 'Déjà vu: Variables!', [])).toBe('/tutorial/deja-vu-variables/');
     expect(suggestPath('/', 'Intro', ['/intro/'])).toBe('/intro-2/');
     expect(validPath('/tutorial/deja-vu/')).toBe(true);
+    expect(validPath('/guide/0.4/en/')).toBe(true);
+    expect(validPath('/prelude/0.4.0-beta.4/')).toBe(true);
+    expect(validPath('/guide/../x/')).toBe(false);
+    expect(validPath('/./')).toBe(false);
     expect(validPath('/__marqraft/x/')).toBe(false);
     expect(validPath('/no-trailing')).toBe(false);
   });

@@ -78,7 +78,14 @@ let urlPath?(path: String) -> Bool do
   return false if !path.startsWith?("/") || !path.endsWith?("/")
   let core = path.drop(1).take(path.count - 2)
   return false if core.split("/").first.or("").startsWith?("__marqraft") || core.split("/").first.or("") == "_theme"
-  return core.split("/").all? { |part| slug?(part) }
+  return core.split("/").all? { |part| pathSegment?(part) }
+end
+
+# Path segments allow dots for versioned documentation URLs such as
+# /guide/0.4/en/, but never bare . or .. Identity slugs stay dot-free.
+let pathSegment?(text: String) -> Bool do
+  return false if text.empty? || text == "." || text == ".."
+  return text.chars.all? { |c| c.letter? || c.digit? || c == '-' || c == '_' || c == '.' }
 end
 
 let create(id: String, title: String, path: String, template: String, body: String) -> String do

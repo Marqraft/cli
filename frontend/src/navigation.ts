@@ -79,7 +79,9 @@ export function suggestPath(parentPath: string, title: string, taken: string[]):
 }
 
 export function validPath(path: string): boolean {
-  return path === '/' || /^\/(?!__marqraft)([A-Za-z0-9_-]+\/)+$/.test(path);
+  if (path === '/') return true;
+  if (!/^\/(?!__marqraft)([A-Za-z0-9_.-]+\/)+$/.test(path)) return false;
+  return path.split('/').filter(Boolean).every(seg => seg !== '.' && seg !== '..');
 }
 
 /** The top-level entry (collection) whose subtree holds the page. */

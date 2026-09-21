@@ -1,6 +1,7 @@
 module Marqraft.Build
 
 using Marqraft.Document, only: [Page]
+using Marqraft.Project, only: [Site]
 foul run(directory: String) -> Void or! String do
   let site = Marqraft.Project.load(directory).try
   let destination = Marqraft.Store.safePath(site.root, "dist").try
@@ -19,6 +20,7 @@ foul run(directory: String) -> Void or! String do
     let html = Marqraft.Theme.render(site, page, false).try
     let output = page.path == "/" then "index.html" else page.path.drop(1) + "index.html"
     Marqraft.Store.write(site.root, stage + "/" + output, html).try
+    IO.printLine("  ${page.path}")
     Ok(())
   end
   pageResults.each { |result| result.try }
@@ -47,6 +49,9 @@ foul run(directory: String) -> Void or! String do
     Ok(())
   end
   themeResults.each { |result| result.try }
+  let publicRelative = assets.map { |asset| asset.drop(7) }
+  let mountResults = site.mounts.map { |mount| copyMount(site, stage, outputFiles, publicRelative, mount).try }
+  mountResults.each { |result| result.try }
   let backup = site.root + "/.marqraft/cache/previous-${Marqraft.Store.identifier}"
   let existing = FS.Directory.directory?(destination)
   return Error("cannot move previous build") if existing && !FS.File.rename(destination, backup)
@@ -56,5 +61,37 @@ foul run(directory: String) -> Void or! String do
   end
   Marqraft.Store.write(site.root, ownership, Digest.sha256(site.root)).try
   IO.printLine("Built ${pages.count} page(s) in ${destination}")
+  return Ok(())
+end
+
+# A mount publishes its generated files under its URL prefix. Mounted output
+# is read-only input: collisions with pages or uploads are errors, never
+# silent overwrites.
+foul copyMount(site: Site, stage: String, outputFiles: [String], publicRelative: [String], mount: Any) -> Void or! String do
+  let single = Marqraft.Data.text(mount, "file", "")
+  if single != ""
+    let relative = Marqraft.Data.text(mount, "path", "").drop(1)
+    return Error("mounted file collides with generated page: ${relative}") if outputFiles.contains?(relative)
+    return Error("mounted file collides with upload: ${relative}") if publicRelative.contains?(relative)
+    let target = Marqraft.Store.safePath(site.root, stage + "/" + relative).try
+    return Error("cannot create mount directory") if !FS.Directory.create(FS.Path.dirname(target))
+    let copied = FS.File.writeBytes(target, FS.File.readBytes(Marqraft.Store.safePath(site.root, single).try).try)
+    return Error("cannot copy mounted file ${relative}") if !copied
+    return Ok(())
+  end
+  let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
+  let dir = Marqraft.Data.text(mount, "dir", "")
+  let names = Marqraft.Store.files(site.root, dir).try.filter { |name| !name.drop(dir.count + 1).split("/").any? { |part| part.startsWith?(".") || part == ".gitkeep" } }.filter { |name| !Marqraft.Project.rawHidden?(site, mount, name) }
+  let results = names.map do |name|
+    let relative = prefix + name.drop(dir.count + 1)
+    return Error("mounted file collides with generated page: ${relative}") if outputFiles.contains?(relative)
+    return Error("mounted file collides with upload: ${relative}") if publicRelative.contains?(relative)
+    let target = Marqraft.Store.safePath(site.root, stage + "/" + relative).try
+    return Error("cannot create mount directory") if !FS.Directory.create(FS.Path.dirname(target))
+    let copied = FS.File.writeBytes(target, FS.File.readBytes(Marqraft.Store.safePath(site.root, name).try).try)
+    return Error("cannot copy mounted file ${relative}") if !copied
+    Ok(())
+  end
+  results.each { |result| result.try }
   return Ok(())
 end

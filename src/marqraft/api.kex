@@ -232,8 +232,8 @@ foul metadata(root: String) -> {String: Any} or! String do
   let fingerprint = themeFiles.map { |file| Digest.fileSha256(root + "/" + file).or("") }.join("")
   return Ok({ "project": Digest.sha256(root), "config": site.config, "theme": Marqraft.Blocks.editorTheme(root, site.theme).try,
     "themeName": Marqraft.Data.text(site.config, "theme", site.themeDir),
-    "pages": site.pages.map { |page| Marqraft.Document.metadata(page) },
-    "navigation": site.navigation, "navigationRevision": Digest.sha256(navSource),
+    "pages": site.pages.filter { |page| !page.generated? }.map { |page| Marqraft.Document.metadata(page) },
+    "navigation": Marqraft.Project.stripGenerated(site.navigation, Marqraft.Project.generatedIds(site)), "navigationRevision": Digest.sha256(navSource),
     "menus": menus, "menusRevision": Digest.sha256(menusSource),
     "uploads": Marqraft.Project.uploadDirectory(site),
     "settingsRevision": Digest.sha256(configSource), "themeRevision": Digest.sha256(fingerprint) })
@@ -242,5 +242,6 @@ end
 foul document(root: String, id: String) -> {String: Any} or! String do
   let site = Marqraft.Project.load(root).try
   let page = Marqraft.Project.page(site, id).try
+  return Error("generated page ${page.title} is read-only") if page.generated?
   return Ok(Marqraft.Document.metadata(page).merge({ "source": page.source, "body": page.body, "html": Marqraft.Content.render(page.body, true, root, Marqraft.Data.list(site.theme.get("blocks").or([])).try) }))
 end

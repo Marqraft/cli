@@ -105,7 +105,8 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
     "css": stylesheet(site, settings), "authoring": authoring?,
-    "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/"
+    "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/",
+    "mounts": site.mounts
   }
   let context = base.merge(menus)
   # A page keeps rendering after a theme switch that lacks its template.
@@ -187,7 +188,8 @@ let mimeType(path: String) -> String do
   let types = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
     ".svg": "image/svg+xml", ".ico": "image/x-icon", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-    ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".woff": "font/woff", ".pdf": "application/pdf"
+    ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".woff": "font/woff", ".pdf": "application/pdf",
+    ".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".xml": "application/xml; charset=utf-8"
   }
   return types.get(FS.Path.extension(path).lowerCase).or("application/octet-stream")
 end

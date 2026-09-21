@@ -15,6 +15,7 @@ record Page do
   body : String
   source : String
   revision : String
+  generated? : Bool
 end
 
 foul parse(source: String, file: String) -> Page or! String do
@@ -37,7 +38,7 @@ foul parse(source: String, file: String) -> Page or! String do
   return Ok(Page {
     file, id, title, description, path, template, draft?: draft == "true",
     body: lines.drop(front.count + 2).join("\n"),
-    source, revision: Digest.sha256(source)
+    source, revision: Digest.sha256(source), generated?: false
   })
 end
 
@@ -95,7 +96,7 @@ end
 let metadata(page: Page) -> {String: Any} do
   return { "id": page.id, "title": page.title, "description": page.description, "path": page.path,
     "draft": page.draft?, "template": page.template, "file": page.file,
-    "revision": page.revision }
+    "revision": page.revision, "generated": page.generated? }
 end
 
 # The source with its frontmatter draft flag set, everything else untouched.

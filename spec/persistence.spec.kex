@@ -26,6 +26,19 @@ describe "filesystem persistence" do
     assert(!Marqraft.Project.save(root, draft.id, draft.revision, draft.source.replace("/second/", "/")).ok?)
     assert(FS.File.read(root + "/" + original.file).try == changed)
   end
+  it "accepts dotted version segments in paths" do
+    let root = "${FS.Directory.temporary}/marqraft-versioned-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    assert(Marqraft.Document.urlPath?("/guide/0.4/en/overview/"))
+    assert(Marqraft.Document.urlPath?("/prelude/0.4.0-beta.4/"))
+    assert(!Marqraft.Document.urlPath?("/guide/../en/"))
+    assert(!Marqraft.Document.urlPath?("/./"))
+    let draft = Marqraft.Project.createPage(root, "Overview", "/guide/0.4/en/overview/", "page", "").try
+    assert(draft.file == "content/guide/0.4/en/overview/index.md")
+    Marqraft.Project.save(root, draft.id, draft.revision, draft.source.replace("draft: true", "draft: false")).try
+    Marqraft.Build.run(root).try
+    assert(FS.File.file?(root + "/dist/guide/0.4/en/overview/index.html"))
+  end
   it "omits drafts, removes stale output and rejects broken draft links" do
     let root = "${FS.Directory.temporary}/marqraft-build-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "basic").try

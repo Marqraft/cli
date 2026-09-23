@@ -197,7 +197,7 @@ foul compiler -> String = ENV.get("TEY_KEX").or("kex")
 # The context travels as an Erlang term: decoding it is immediate, where
 # parsing JSON in Kex dominated render time for pages with large CSS.
 let runnerSource(path: String) -> String do
-  return "using FS\nusing Template\nmain(args) do\n  let context = Erlang.Erlang.binary_to_term(Erlang.Base64.decode(FS.File.read(args.first.try).try))\n  let render = Template.html(Kex.embed(" + JSON.stringify(path) + "))\n  IO.print(render(context))\nend\n"
+  return "using FS\nusing Template\nmain(args) do\n  let context = BEAM.erlang.binary_to_term(BEAM.base64.decode(FS.File.read(args.first.try).try))\n  let render = Template.html(Kex.embed(" + JSON.stringify(path) + "))\n  IO.print(render(context))\nend\n"
 end
 
 # Theme CSS reads settings as --marq-<name> custom properties; values are
@@ -389,7 +389,7 @@ foul template(root: String, relative: String, context: {String: Any}) -> String 
   end
   let input = directory + "/input-${Marqraft.Store.identifier}.term"
   # FS writes Kex Binary values, not raw terms, so the term is base64 text.
-  return Error("cannot write template input") if !FS.File.write(root + "/" + input, Erlang.Base64.encode(Erlang.Erlang.term_to_binary(context)))
+  return Error("cannot write template input") if !FS.File.write(root + "/" + input, BEAM.base64.encode(BEAM.erlang.term_to_binary(context)))
   let result = Process.run(compiler, ["--run", beam, "--", root + "/" + input], 15000)
   let _ = FS.File.delete(root + "/" + input)
   let rendered = result.try

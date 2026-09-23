@@ -5,7 +5,7 @@ using FS
 
 # 32 random bytes as lowercase hex, from the BEAM's CSPRNG rather than a process.
 foul identifier -> String do
-  return "${Erlang.Binary.encode_hex(Erlang.Crypto.strong_rand_bytes(32), :lowercase)}"
+  return "${BEAM.binary.encode_hex(BEAM.crypto.strong_rand_bytes(32), :lowercase)}"
 end
 
 # An absolute, normalized directory with no symlink on the way is already its
@@ -28,7 +28,7 @@ end
 # lstat-style check without a process: read_link succeeds only on a symlink,
 # dangling or not.
 foul symlink?(path: String) -> Bool do
-  return Erlang.Erlang.element(1, Erlang.File.read_link(path)) == :ok
+  return BEAM.erlang.element(1, BEAM.file.read_link(path)) == :ok
 end
 
 # Whether any existing component of base/parts is a symlink.

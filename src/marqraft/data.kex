@@ -52,7 +52,7 @@ end
 # decoded JSON value) sends the text to JSON.parse, which also accepts JSONC
 # comments and reports errors.
 foul decode(text: String) -> Any or! String do
-  let decoded = Erlang.Rpc.call(Erlang.Erlang.node(), :json, :decode, [text])
+  let decoded = BEAM.rpc.call(BEAM.erlang.node(), :json, :decode, [text])
   return Marqraft.Data.parse(text) if Type.of(decoded).name == "Tuple"
   return Ok(decoded)
 end
@@ -61,7 +61,7 @@ end
 # sharply on long strings (a 59 KB page body took over a minute). Replies hold
 # only maps, lists, strings, integers and booleans.
 foul encode(value: Any) -> String do
-  return "${Erlang.Erlang.iolist_to_binary(Erlang.Json.encode(value))}"
+  return "${BEAM.erlang.iolist_to_binary(BEAM.json.encode(value))}"
 end
 
 # Indented JSON for versioned project files, so Git diffs stay line-sized.

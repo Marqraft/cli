@@ -60,6 +60,7 @@ params: [context: {String: Any}]
 | `logo`      | `<img class="site-logo">` when the logo setting is set (raw) |
 | `authoring` | `true` in `marq dev`, `false` in builds                  |
 | `mounts`    | the site's mounts: `path`, `dir`, and `versions` (`name` + `path` per immediate subdirectory), for the theme to iterate |
+| `page`      | a generated page's own data: what a fragments mount's sidecar puts in `data` (`context["page"].try["version"].or("")`); empty otherwise |
 
 Content regions are bound with elements rather than interpolation, so the
 authoring server can attach the editor to exactly that region and builds can
@@ -150,6 +151,29 @@ frontmatter-style header lines are dropped unread. `.md`-relative links
 between generated files are rewritten to page URLs; anything unresolvable
 stays verbatim. Every version and the mount root get a synthetic index page
 listing their members, unless a real `index.md` already claims that URL.
+
+A producer that renders its own pages — linked, highlighted API signatures
+that Markdown cannot carry — mounts them with `"format": "fragments"`:
+
+```jsonc
+{ "path": "/prelude/", "dir": "reference/prelude", "pages": true, "format": "fragments", "template": "reference" }
+```
+
+Each page is an HTML body plus a `<page>.page.json` sidecar beside it:
+
+```json
+{ "title": "List", "description": "Ordered sequences.", "path": "/prelude/0.4/list/",
+  "template": "reference", "body": "list.html", "data": { "version": "0.4" } }
+```
+
+The body is used as-is; `path` must lie inside the mount; `template`
+overrides the mount's; `data` reaches the template as `context["page"]`. A
+sidecar at a version's own URL replaces the synthetic version index, and a
+`nav.json` in the version directory (`{ "title", "path", "children" }`)
+shapes that version's navigation instead of a flat list. Sidecars, bodies
+and `nav.json` are not served; the mount's other files (Markdown twins,
+JSON indexes) are. Tey's `tey docs build --format fragments` writes this
+layout.
 
 Generated pages publish and render like any other, but nothing may edit
 them: `save`, draft changes, nesting under them, and the document API all

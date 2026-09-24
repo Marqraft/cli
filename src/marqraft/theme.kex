@@ -72,7 +72,7 @@ foul materialize(root: String, name: String, files: {String: String}) -> String 
 end
 
 foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
-  let body = Marqraft.Content.render(page.body, authoring?, site.root, Marqraft.Data.list(site.theme.get("blocks").or([])).try)
+  let body = page.html.empty? then Marqraft.Content.render(page.body, authoring?, site.root, Marqraft.Data.list(site.theme.get("blocks").or([])).try) else page.html
   let title = authoring? then "<h1 data-marq-title>${Marqraft.Content.escape(page.title)}</h1>" else "<h1>${Marqraft.Content.escape(page.title)}</h1>"
   let content = authoring? then "<div data-marq-body>${body}</div>" else body
   let settings = Marqraft.Data.object(site.config.get("settings").or({})).try
@@ -106,7 +106,8 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "pager:collection": pager(site, page, authoring?, collectionNodes),
     "css": stylesheet(site, settings), "authoring": authoring?,
     "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/",
-    "mounts": site.mounts
+    "mounts": site.mounts,
+    "page": Marqraft.Data.object(Marqraft.Data.decode(page.data).or({})).or({})
   }
   let context = base.merge(menus)
   # A page keeps rendering after a theme switch that lacks its template.

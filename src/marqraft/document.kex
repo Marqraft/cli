@@ -16,6 +16,11 @@ record Page do
   source : String
   revision : String
   generated? : Bool
+  # A generated page whose producer rendered it already ("format":
+  # "fragments" mounts): the body as HTML, never passed through Markdown,
+  # and the producer's own JSON for the template (`context["page"]`).
+  html : String = ""
+  data : String = "{}"
 end
 
 foul parse(source: String, file: String) -> Page or! String do

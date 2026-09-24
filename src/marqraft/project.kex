@@ -35,7 +35,7 @@ foul load(directory: String) -> Site or! String do
   let mounts = loadMounts(root, themeDir, Marqraft.Data.list(config.get("mounts").or([])).try, filePages).try
   let generated = generatedPages(root, themeDir, mounts, filePages).try
   let pages = filePages + generated
-  let tree = navigation + mountNodes(mounts, generated)
+  let tree = navigation + mountNodes(root, mounts, generated)
   let site = Site { root, config, themeDir, theme, pages, navigation: tree, menus, mounts }
   return Error("uploads.images must be a folder inside public/, such as images or assets/images") if !uploadDirectory?(uploadDirectory(site))
   return Ok(site)
@@ -79,8 +79,10 @@ foul loadDirMount(root: String, themeDir: String, entry: Any, path: String, dir:
   return Error("mount is not a directory: ${dir}") if !FS.Directory.directory?(resolved)
   return Error("mount cannot replace content, uploads, project data, or the theme: ${dir}") if reservedDir?(dir, themeDir)
   let rendered = loadRenderMount(root, themeDir, entry, path, dir).try
+  let format = Marqraft.Data.text(entry, "format", "markdown")
+  return Error("unknown mount format for ${path}: ${format} (markdown or fragments)") if !["markdown", "fragments"].contains?(format)
   return Ok({ "path": path, "dir": dir, "versions": mountVersions(resolved, path).try,
-    "pages": Marqraft.Data.flag(entry, "pages", false),
+    "pages": Marqraft.Data.flag(entry, "pages", false), "format": format,
     "title": Marqraft.Data.text(rendered, "title", ""), "template": Marqraft.Data.text(rendered, "template", "page") })
 end
 
@@ -162,7 +164,7 @@ foul entryPages(entry: Any) -> [Page] do
 end
 
 let isModulePage(page: Page, dir: String) -> Bool do
-  return pageFile(page).endsWith?(".md") && pageFile(page).startsWith?(dir + "/")
+  return (pageFile(page).endsWith?(".md") || pageFile(page).endsWith?(".page.json")) && pageFile(page).startsWith?(dir + "/")
 end
 
 let pageRel(file: String, dir: String) -> String do
@@ -172,10 +174,10 @@ end
 foul toPage(raw: Any) -> Page do
   let file = Marqraft.Data.text(raw, "file", "")
   return Page { file, id: Marqraft.Data.text(raw, "id", ""), title: Marqraft.Data.text(raw, "title", ""),
-    description: "", path: Marqraft.Data.text(raw, "path", ""), draft?: false,
+    description: Marqraft.Data.text(raw, "description", ""), path: Marqraft.Data.text(raw, "path", ""), draft?: false,
     template: Marqraft.Data.text(raw, "template", "page"), body: Marqraft.Data.text(raw, "body", ""),
     source: Marqraft.Data.text(raw, "source", ""), revision: Digest.sha256(Marqraft.Data.text(raw, "source", "")),
-    generated?: true }
+    generated?: true, html: Marqraft.Data.text(raw, "html", ""), data: Marqraft.Data.text(raw, "data", "{}") }
 end
 
 let versionIndex(mount: Any, mountTitle: String, template: String, dir: String, prefix: String, version: Any, modules: [Page]) -> Page do
@@ -215,24 +217,47 @@ end
 
 # Synthetic navigation: each rendered mount becomes a trailing collection of
 # its version indexes, root modules, and their members.
-foul mountNodes(mounts: [Any], generated: [Page]) -> [Any] do
+foul mountNodes(root: String, mounts: [Any], generated: [Page]) -> [Any] do
   let rendered = mounts.filter { |mount| Marqraft.Data.flag(mount, "pages", false) && Marqraft.Data.text(mount, "dir", "") != "" }
-  return rendered.map { |mount| mountNode(mount, generated) }
+  return rendered.map { |mount| mountNode(root, mount, generated) }
 end
 
-foul mountNode(mount: Any, generated: [Page]) -> Any do
+foul mountNode(root: String, mount: Any, generated: [Page]) -> Any do
   let dir = Marqraft.Data.text(mount, "dir", "")
   let prefix = Marqraft.Data.text(mount, "path", "")
   let mine = generated.filter { |page| pageFile(page) == dir || pageFile(page).startsWith?(dir + "/") }
   let versions = Marqraft.Data.list(Marqraft.Data.object(mount).or({}).get("versions").or([])).or([])
-  let children = versions.map { |version| versionNode(mount, mine, Marqraft.Data.text(version, "name", "")) } + rootNodes(mount, mine)
+  let children = versions.map { |version| versionNode(root, mount, mine, Marqraft.Data.text(version, "name", "")) } + rootNodes(mount, mine)
   return { "id": mountIndexId(prefix, ""), "children": children.filter { |node| nodePages(node, mine) } }
 end
 
-foul versionNode(mount: Any, mine: [Page], name: String) -> Any do
+foul versionNode(root: String, mount: Any, mine: [Page], name: String) -> Any do
   let dir = Marqraft.Data.text(mount, "dir", "")
-  let members = mine.filter { |page| isModulePage(page, dir) && pageRel(pageFile(page), dir).startsWith?(name + "/") }
-  return { "id": mountIndexId(Marqraft.Data.text(mount, "path", ""), name), "children": members.map { |page| { "id": pageId(page), "children": [] } } }
+  let own = mountIndexId(Marqraft.Data.text(mount, "path", ""), name)
+  let members = mine.filter { |page| isModulePage(page, dir) && pageRel(pageFile(page), dir).startsWith?(name + "/") && pageId(page) != own }
+  # A producer that ships a page tree (nav.json) nests its pages its way —
+  # a module family as one branch; otherwise the version lists them flat.
+  let tree = fragments?(mount) then producerTree(root, mount, name) else []
+  let children = tree.empty? then members.map { |page| { "id": pageId(page), "children": [] } } else tree
+  return { "id": own, "children": children }
+end
+
+foul producerTree(root: String, mount: Any, name: String) -> [Any] do
+  let file = Marqraft.Store.safePath(root, Marqraft.Data.text(mount, "dir", "") + "/" + name + "/nav.json").or("")
+  match FS.File.read(file) do
+    Error(_) => []
+    Ok(text) => match Marqraft.Data.decode(text) do
+      Error(_) => []
+      Ok(tree) => treeNodes(Marqraft.Data.list(Marqraft.Data.object(tree).or({}).get("children").or([])).or([]))
+    end
+  end
+end
+
+let treeNodes(nodes: [Any]) -> [Any] do
+  return nodes.map do |node|
+    let children = Marqraft.Data.list(Marqraft.Data.object(node).or({}).get("children").or([])).or([])
+    { "id": pathId(Marqraft.Data.text(node, "path", "")), "children": treeNodes(children) }
+  end
 end
 
 foul rootNodes(mount: Any, mine: [Page]) -> [Any] do
@@ -248,8 +273,14 @@ end
 
 # Raw generator sources stay out of serving and publishing once rendered:
 # the .md twin of a page, and an index.html shadowed by a synthetic index.
-let rawHidden?(site: Site, mount: Any, projectFile: String) -> Bool do
+foul rawHidden?(site: Site, mount: Any, projectFile: String) -> Bool do
   return false if !Marqraft.Data.flag(mount, "pages", false)
+  if fragments?(mount)
+    # The sidecars, the bodies they name and the page trees are what the
+    # pages are built from; the rest (Markdown twins, JSON indexes) serves.
+    return true if projectFile.endsWith?(".page.json") || projectFile.endsWith?("/nav.json")
+    return site.pages.any? { |page| pageGenerated?(page) && pageFile(page).endsWith?(".page.json") && projectFile.endsWith?(".html") && fragmentBodyOf(page) == projectFile }
+  end
   if projectFile.endsWith?(".md")
     return site.pages.any? { |page| pageGenerated?(page) && pageFile(page) == projectFile }
   end
@@ -257,6 +288,12 @@ let rawHidden?(site: Site, mount: Any, projectFile: String) -> Bool do
     return site.pages.any? { |page| pageGenerated?(page) && pageFile(page) == projectFile.take(projectFile.count - 11) }
   end
   return false
+end
+
+# The body file of a fragments page: named in its sidecar, beside it.
+foul fragmentBodyOf(page: Page) -> String do
+  let bodyName = Marqraft.Data.text(Marqraft.Data.decode(page.source).or({}), "body", "")
+  return fragmentBody(page.file, bodyName)
 end
 
 let pageId(page: Page) -> String = page.id
@@ -290,8 +327,14 @@ foul collectRawPages(root: String, mounts: [Any], collected: [Any]) -> [Any] or!
   return Ok(collected) if mounts.empty?
   let mount = mounts.first.try
   let dir = Marqraft.Data.text(mount, "dir", "")
-  let names = Marqraft.Store.files(root, dir).try.filter { |name| name.endsWith?(".md") && !name.drop(dir.count + 1).split("/").any? { |part| part.startsWith?(".") } }.sort
-  let raw = names.map { |name| rawPage(root, mount, name).try }
+  let fragments = fragments?(mount)
+  let suffix = fragments then ".page.json" else ".md"
+  let names = Marqraft.Store.files(root, dir).try.filter { |name| name.endsWith?(suffix) && !name.drop(dir.count + 1).split("/").any? { |part| part.startsWith?(".") } }.sort
+  # Collected as Results and checked here: `.try` inside the block would
+  # return from the block, and a bad page would become a list element
+  # instead of failing the load.
+  let results = names.map { |name| fragments then fragmentPage(root, mount, name) else rawPage(root, mount, name) }
+  let raw = allOk(results).try
   return collectRawPages(root, mounts.drop(1), collected + [{ "mount": mount, "pages": raw }])
 end
 
@@ -320,6 +363,61 @@ foul rawPage(root: String, mount: Any, name: String) -> Any or! String do
     "body": body.join("\n"), "source": source, "folders": folders })
 end
 
+# A mount whose producer renders its own pages: each page is an HTML body
+# plus a `<page>.page.json` sidecar, instead of Markdown for Marqraft to
+# render. The body keeps everything the producer knows that Markdown cannot
+# carry — linked, highlighted signatures, say — and the sidecar says where
+# the page lives and what the template should know about it:
+#
+#   { "title", "description", "path", "template", "body": "<page>.html", "data": {...} }
+#
+# `path` must lie inside the mount; `template` falls back to the mount's;
+# `data` reaches the template as context["page"].
+let fragments?(mount: Any) -> Bool = Marqraft.Data.text(mount, "format", "markdown") == "fragments"
+
+foul fragmentPage(root: String, mount: Any, name: String) -> Any or! String do
+  let prefix = Marqraft.Data.text(mount, "path", "")
+  let sidecar = Marqraft.Data.object(Marqraft.Data.read(Marqraft.Store.safePath(root, name).try).try).try
+  let url = Marqraft.Data.text(sidecar, "path", "")
+  return Error("${name}: path ${url} is not inside the mount ${prefix}") if !url.startsWith?(prefix) || !Marqraft.Document.urlPath?(url)
+  let bodyName = Marqraft.Data.text(sidecar, "body", "")
+  return Error("${name}: body must name a sibling file") if bodyName.empty? || bodyName.contains?("/")
+  let html = FS.File.read(Marqraft.Store.safePath(root, fragmentBody(name, bodyName)).try).try
+  let template = Marqraft.Data.text(sidecar, "template", Marqraft.Data.text(mount, "template", "page"))
+  return Error("${name}: invalid template ${template}") if !Marqraft.Document.slug?(template)
+  let rel = name.drop(Marqraft.Data.text(mount, "dir", "").count + 1).split("/")
+  let source = Marqraft.Data.encode(sidecar)
+  return Ok({ "file": name, "id": pathId(url), "title": Marqraft.Data.text(sidecar, "title", url),
+    "description": Marqraft.Data.text(sidecar, "description", ""), "path": url, "template": template,
+    "body": "", "html": html, "data": Marqraft.Data.encode(sidecar.get("data").or({})),
+    "source": source, "folders": rel.take(rel.count - 1) })
+end
+
+# The body file a sidecar names, beside it.
+let fragmentBody(sidecar: String, bodyName: String) -> String do
+  let parts = sidecar.split("/")
+  return (parts.take(parts.count - 1) + [bodyName]).join("/")
+end
+
+# The id a generated page at this URL gets — the same scheme rawPage and
+# mountIndexId use, so a producer's own version index replaces the
+# synthetic one.
+let pathId(url: String) -> String do
+  return "mount-" + urlSegments(url).map { |part| part.replace(".", "-") }.join("-")
+end
+
+foul allOk(results: [Any or! String]) -> [Any] or! String do
+  return allOkLoop(results, [])
+end
+
+foul allOkLoop(results: [Any or! String], values: [Any]) -> [Any] or! String do
+  return Ok(values) if results.empty?
+  match results.first.try do
+    Error(message) => Error(message)
+    Ok(value) => allOkLoop(results.drop(1), values + [value])
+  end
+end
+
 let urlSegments(prefix: String) -> [String] do
   return prefix.split("/").filter { |part| !part.empty? }
 end
@@ -341,6 +439,8 @@ end
 # into a guess.
 foul linkEntry(entry: Any) -> Any or! String do
   let mount = Marqraft.Data.object(entry).or({}).get("mount").or({})
+  # A producer's HTML already links where it means to.
+  return Ok(entry) if fragments?(mount)
   let dir = Marqraft.Data.text(mount, "dir", "")
   let raw = Marqraft.Data.list(Marqraft.Data.object(entry).or({}).get("pages").or([])).or([])
   let pairs = raw.map do |page|

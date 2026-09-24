@@ -23,7 +23,7 @@ foul run(directory: String) -> Void or! String do
     IO.printLine("  ${page.path}")
     Ok(())
   end
-  pageResults.each { |result| result.try }
+  firstError(pageResults).try
   let assets = Marqraft.Store.files(site.root, "public").try
   let assetResults = assets.map do |asset|
     let relative = asset.drop(7)
@@ -38,7 +38,7 @@ foul run(directory: String) -> Void or! String do
     end
     Ok(())
   end
-  assetResults.each { |result| result.try }
+  firstError(assetResults).try
   let themeAssets = Marqraft.Store.files(site.root, site.themeDir + "/assets").try
   let themeResults = themeAssets.map do |asset|
     let relative = "_theme/" + asset.drop(site.themeDir.count + 8)
@@ -48,10 +48,10 @@ foul run(directory: String) -> Void or! String do
     return Error("cannot copy theme asset ${relative}") if !copied
     Ok(())
   end
-  themeResults.each { |result| result.try }
+  firstError(themeResults).try
   let publicRelative = assets.map { |asset| asset.drop(7) }
-  let mountResults = site.mounts.map { |mount| copyMount(site, stage, outputFiles, publicRelative, mount).try }
-  mountResults.each { |result| result.try }
+  let mountResults = site.mounts.map { |mount| copyMount(site, stage, outputFiles, publicRelative, mount) }
+  firstError(mountResults).try
   let backup = site.root + "/.marqraft/cache/previous-${Marqraft.Store.identifier}"
   let existing = FS.Directory.directory?(destination)
   return Error("cannot move previous build") if existing && !FS.File.rename(destination, backup)
@@ -92,6 +92,17 @@ foul copyMount(site: Site, stage: String, outputFiles: [String], publicRelative:
     return Error("cannot copy mounted file ${relative}") if !copied
     Ok(())
   end
-  results.each { |result| result.try }
+  firstError(results).try
   return Ok(())
+end
+
+# `.try` inside an `each` block returns from the block, not from the
+# function: a page that failed to render, or a file that failed to copy, used
+# to leave a silently incomplete dist/ behind a successful build.
+let firstError(results: [Void or! String]) -> Void or! String do
+  return Ok(()) if results.empty?
+  match results.first.try do
+    Error(message) => Error(message)
+    Ok(_) => firstError(results.drop(1))
+  end
 end

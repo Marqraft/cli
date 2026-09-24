@@ -58,6 +58,8 @@ foul start(directory: String, port: Integer) -> Void or! String do
           Marqraft.Server.themeAsset(root, path.drop(7))
         elif Marqraft.Server.publicFile?(root, path)
           asset(root, path)
+        elif Marqraft.Server.mountedPath(root, path).ok?
+          mountAsset(root, path)
         else
           Marqraft.Server.renderPage(root, "/" + path, token)
         end
@@ -106,7 +108,8 @@ foul renderPage(root: String, path: String, token: String) -> Rodolfo.Response.R
   let found = site.pages.find { |item| item.path == path }
   return Response.Text { status: 404, body: "Page not found" } if !found.set?
   let page = found.try
-  let html = Marqraft.Theme.render(site, page, true).try
+  # Generated pages render view-only: no editing bindings ever attach to them.
+  let html = Marqraft.Theme.render(site, page, !page.generated?).try
   let author = "<meta name=\"marq-token\" content=\"${token}\"><meta name=\"marq-page\" content=\"${Marqraft.Content.escape(page.id)}\"><link rel=\"stylesheet\" href=\"/__marqraft/editor.css\"><div id=\"marq-chrome\"></div><script src=\"/__marqraft/editor.js\" defer></script>"
   return Response.HTML { body: html.replace("</body>", author + "</body>"), headers: noCache }
 rescue |error|
@@ -130,6 +133,51 @@ foul publicFile?(root: String, relative: String) -> Bool do
     Ok(path) => FS.File.file?(path)
     Error(_) => false
   end
+end
+
+# A request path inside a mounted directory, resolved to its project file.
+# Mounts are generated output: served verbatim, never edited or bound.
+foul mountedPath(root: String, relative: String) -> String or! String do
+  let site = Marqraft.Project.load(root).try
+  let found = site.mounts.find do |mount|
+    let single = Marqraft.Data.text(mount, "file", "")
+    if single != ""
+      relative == Marqraft.Data.text(mount, "path", "").drop(1)
+    else
+      let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
+      relative == prefix.take(prefix.count - 1) || relative.startsWith?(prefix)
+    end
+  end
+  match found do
+    None => Error("no mount serves ${relative}")
+    Just(mount) => do
+      let single = Marqraft.Data.text(mount, "file", "")
+      if single != ""
+        let singlePath = Marqraft.Store.safePath(root, single).try
+        return Error("mounted file not found") if !FS.File.file?(singlePath)
+        return Ok(singlePath)
+      end
+      let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
+      let dir = Marqraft.Data.text(mount, "dir", "")
+      let rest = relative.drop(prefix.count)
+      let file = if rest == "" || rest.endsWith?("/")
+        rest + "index.html"
+      else
+        rest
+      end
+      return Error("generated source is rendered, not served") if Marqraft.Project.rawHidden?(site, mount, dir + "/" + file)
+      let path = Marqraft.Store.safePath(root, dir + "/" + file).try
+      return Error("mounted file not found") if !FS.File.file?(path)
+      return Ok(path)
+    end
+  end
+end
+
+foul mountAsset(root: String, relative: String) -> Rodolfo.Response.Reply do
+  let path = Marqraft.Server.mountedPath(root, relative).try
+  return Response.Raw { body: FS.File.readBytes(path).try, contentType: Marqraft.Theme.mimeType(path), headers: noCache }
+rescue |error|
+  return Response.Text { status: 404, body: "mounted file not found" }
 end
 
 foul themeAsset(root: String, relative: String) -> Rodolfo.Response.Reply do

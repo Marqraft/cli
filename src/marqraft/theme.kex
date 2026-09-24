@@ -72,11 +72,11 @@ foul materialize(root: String, name: String, files: {String: String}) -> String 
 end
 
 foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
-  let body = Marqraft.Content.render(page.body, authoring?, site.root, Marqraft.Data.list(site.theme.get("blocks").or([])).try)
+  let body = page.html.empty? then Marqraft.Content.render(page.body, authoring?, site.root, Marqraft.Data.list(site.theme.get("blocks").or([])).try) else page.html
   let title = authoring? then "<h1 data-marq-title>${Marqraft.Content.escape(page.title)}</h1>" else "<h1>${Marqraft.Content.escape(page.title)}</h1>"
   let content = authoring? then "<div data-marq-body>${body}</div>" else body
   let settings = Marqraft.Data.object(site.config.get("settings").or({})).try
-  let links = navigation(site, site.navigation, authoring?, page.id)
+  let links = navigation(site, Marqraft.Project.visible(site.navigation, page.id), authoring?, page.id)
   # A collection is a top-level navigation entry; its nested pages are its members.
   let collectionNodes = site.navigation.filter { |node| containsPage?(node, page.id) }
   let collectionNode = collectionNodes.first.or({})
@@ -105,7 +105,9 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
     "css": stylesheet(site, settings), "authoring": authoring?,
-    "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/"
+    "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/",
+    "mounts": site.mounts,
+    "page": Marqraft.Data.object(Marqraft.Data.decode(page.data).or({})).or({})
   }
   let context = base.merge(menus)
   # A page keeps rendering after a theme switch that lacks its template.
@@ -187,7 +189,8 @@ let mimeType(path: String) -> String do
   let types = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
     ".svg": "image/svg+xml", ".ico": "image/x-icon", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-    ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".woff": "font/woff", ".pdf": "application/pdf"
+    ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".woff2": "font/woff2", ".woff": "font/woff", ".pdf": "application/pdf",
+    ".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".xml": "application/xml; charset=utf-8"
   }
   return types.get(FS.Path.extension(path).lowerCase).or("application/octet-stream")
 end
@@ -270,7 +273,10 @@ end
 # The top-level navigation entries: one link per collection. The collection
 # holding the current page is marked aria-current="true", the page itself "page".
 foul collectionsHtml(site: Site, current: String, authoring?: Bool) -> String do
-  let items = site.navigation.map do |node|
+  # An unlisted collection (an older edition) is left out, unless the
+  # reader is inside it.
+  let shown: [Any] = Marqraft.Project.visible(site.navigation, current)
+  let items = shown.map do |node|
     let id = Marqraft.Data.text(node, "id", "")
     match Marqraft.Project.page(site, id) do
       Error(_) => ""

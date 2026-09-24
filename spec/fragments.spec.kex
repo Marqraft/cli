@@ -1,0 +1,77 @@
+using Marqraft.Project
+
+# A fragments mount: pages a producer rendered itself (Tey docgen's
+# `--format fragments`), one version directory with a landing page and a
+# member, and a page tree.
+foul fragmentsSite() -> String do
+  let root = "${FS.Directory.temporary}/marqraft-fragments-${Marqraft.Store.identifier}"
+  Marqraft.Scaffold.create(root, "basic").try
+  let v = "reference/api/1.0"
+  Marqraft.Store.write(root, v + "/index.page.json", "{ \"title\": \"API\", \"path\": \"/api/1.0/\", \"body\": \"index.html\", \"data\": { \"version\": \"1.0\" } }").try
+  Marqraft.Store.write(root, v + "/index.html", "<p>All modules.</p>").try
+  Marqraft.Store.write(root, v + "/list.page.json", "{ \"title\": \"Lists\", \"description\": \"Ordered sequences.\", \"path\": \"/api/1.0/list/\", \"body\": \"list.html\", \"data\": { \"version\": \"1.0\", \"toc\": [] } }").try
+  Marqraft.Store.write(root, v + "/list.html", "<section class=\"entity\" id=\"type-list\"><h2>List</h2></section>").try
+  Marqraft.Store.write(root, v + "/list.md", "# List\n").try
+  Marqraft.Store.write(root, v + "/nav.json", "{ \"title\": \"API\", \"path\": \"/api/1.0/\", \"children\": [{ \"title\": \"Lists\", \"path\": \"/api/1.0/list/\", \"children\": [] }] }").try
+  let config = Marqraft.Data.object(Marqraft.Data.read(root + "/marqraft.jsonc").try).try
+  let mounts = Marqraft.Data.decode("[{ \"path\": \"/api/\", \"dir\": \"reference/api\", \"pages\": true, \"format\": \"fragments\", \"title\": \"API\" }]").try
+  Marqraft.Store.write(root, "marqraft.jsonc", Marqraft.Data.pretty(config.put("mounts", mounts))).try
+  return root
+end
+
+describe "fragments mounts" do
+  it "loads each sidecar as a read-only page with the producer's HTML and data" do
+    let root = fragmentsSite()
+    let site = Marqraft.Project.load(root).try
+    let list = site.pages.find { |page| page.path == "/api/1.0/list/" }.try
+    assert(list.generated?)
+    assert(list.title == "Lists")
+    assert(list.description == "Ordered sequences.")
+    assert(list.html.contains?("id=\"type-list\""))
+    assert(Marqraft.Data.text(Marqraft.Data.decode(list.data).try, "version", "") == "1.0")
+    assert(!Marqraft.Project.save(root, list.id, list.revision, "---\nid: x\n---\n").ok?)
+  end
+
+  it "renders the body as given, never through Markdown, and passes the data to the template" do
+    let root = fragmentsSite()
+    let site = Marqraft.Project.load(root).try
+    let list = site.pages.find { |page| page.path == "/api/1.0/list/" }.try
+    let html = Marqraft.Theme.render(site, list, false).try
+    assert(html.contains?("<section class=\"entity\" id=\"type-list\"><h2>List</h2></section>"))
+  end
+
+  it "uses the producer's version page instead of a synthetic one, and its page tree" do
+    let root = fragmentsSite()
+    let site = Marqraft.Project.load(root).try
+    let version = site.pages.filter { |page| page.path == "/api/1.0/" }
+    assert(version.count == 1)
+    assert(version.first.try.html == "<p>All modules.</p>")
+    # The mount root has no producer page, so it keeps its synthetic index.
+    assert(site.pages.any? { |page| page.path == "/api/" })
+    let list = site.pages.find { |page| page.path == "/api/1.0/list/" }.try
+    let versionNode = Marqraft.Project.page(site, version.first.try.id).try
+    assert(Marqraft.Theme.render(site, list, false).try.contains?("<a href=\"/api/1.0/list/\" aria-current=\"page\">Lists</a>"))
+    let _ = versionNode
+  end
+
+  it "publishes the Markdown twins but not the sidecars, bodies or page tree" do
+    let root = fragmentsSite()
+    Marqraft.Build.run(root).try
+    assert(FS.File.file?(root + "/dist/api/1.0/list/index.html"))
+    assert(FS.File.read(root + "/dist/api/1.0/list.md").try == "# List\n")
+    assert(!FS.File.file?(root + "/dist/api/1.0/list.page.json"))
+    assert(!FS.File.file?(root + "/dist/api/1.0/list.html"))
+    assert(!FS.File.file?(root + "/dist/api/1.0/nav.json"))
+  end
+
+  it "rejects a sidecar whose page lies outside the mount, and an unknown format" do
+    let root = fragmentsSite()
+    Marqraft.Store.write(root, "reference/api/1.0/stray.page.json", "{ \"title\": \"Stray\", \"path\": \"/elsewhere/\", \"body\": \"list.html\" }").try
+    assert(!Marqraft.Project.load(root).ok?)
+    let other = fragmentsSite()
+    let config = Marqraft.Data.object(Marqraft.Data.read(other + "/marqraft.jsonc").try).try
+    let mounts = Marqraft.Data.decode("[{ \"path\": \"/api/\", \"dir\": \"reference/api\", \"pages\": true, \"format\": \"html\" }]").try
+    Marqraft.Store.write(other, "marqraft.jsonc", Marqraft.Data.pretty(config.put("mounts", mounts))).try
+    assert(!Marqraft.Project.load(other).ok?)
+  end
+end

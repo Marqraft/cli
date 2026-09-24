@@ -1,0 +1,16 @@
+using Marqraft.Project
+
+describe "build" do
+  it "fails when a page cannot be built, instead of publishing an incomplete site" do
+    let root = "${FS.Directory.temporary}/marqraft-build-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    let site = Marqraft.Project.load(root).try
+    let home = site.pages.find { |page| page.path == "/" }.try
+    let draft = Marqraft.Project.createPage(root, "Draft", "/draft/", "page", "").try
+    # A published page linking to a draft cannot be built: the link would break.
+    Marqraft.Project.save(root, home.id, home.revision, home.source + "\n[soon](/draft/)\n").try
+    assert(draft.draft?)
+    assert(!Marqraft.Build.run(root).ok?)
+    assert(!FS.Directory.directory?(root + "/dist"))
+  end
+end

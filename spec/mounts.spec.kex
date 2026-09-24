@@ -1,0 +1,143 @@
+using Marqraft.Project
+
+describe "generated mounts" do
+  it "lists versions from the mount directory and resolves its files" do
+    let root = "${FS.Directory.temporary}/marqraft-mounts-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/index.html", "prelude 0.4").try
+    Marqraft.Store.write(root, "reference/prelude/0.5/index.html", "prelude 0.5").try
+    Marqraft.Store.write(root, "reference/prelude/.cache/note.txt", "internal").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}]").try
+    let site = Marqraft.Project.load(root).try
+    assert(site.mounts.count == 1)
+    let versions = Marqraft.Data.list(Marqraft.Data.object(site.mounts.first.try).or({}).get("versions").or([])).or([])
+    assert(versions.count == 2)
+    assert(Marqraft.Data.text(versions.first.try, "path", "") == "/prelude/0.4/")
+    assert(Marqraft.Data.text(versions.drop(1).first.try, "name", "") == "0.5")
+    assert(FS.File.read(Marqraft.Server.mountedPath(root, "prelude/0.4/index.html").try).try == "prelude 0.4")
+    assert(FS.File.read(Marqraft.Server.mountedPath(root, "prelude/0.5/").try).try == "prelude 0.5")
+    assert(!Marqraft.Server.mountedPath(root, "prelude/0.4/../../marqraft.jsonc").ok?)
+    assert(!Marqraft.Server.mountedPath(root, "guide/").ok?)
+  end
+  it "mounts single generated files at exact URLs" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-file-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/search.json", "{}").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/index.html", "prelude 0.4").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}, {\"path\": \"/search.json\", \"file\": \"reference/search.json\"}]").try
+    assert(FS.File.read(Marqraft.Server.mountedPath(root, "search.json").try).try == "{}")
+    Marqraft.Build.run(root).try
+    assert(FS.File.read(root + "/dist/search.json").try == "{}")
+    assert(!withMounts(root, "[{\"path\": \"/gone.json\", \"file\": \"reference/missing.json\"}]").ok?)
+    assert(!withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}, {\"path\": \"/prelude/index.json\", \"file\": \"reference/search.json\"}]").ok?)
+    assert(!withMounts(root, "[{\"path\": \"/search\", \"file\": \"reference/search.json\"}]").ok?)
+  end
+  it "publishes mounts and rejects collisions and reserved directories" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-build-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/index.html", "prelude 0.4").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}]").try
+    Marqraft.Build.run(root).try
+    assert(FS.File.read(root + "/dist/prelude/0.4/index.html").try == "prelude 0.4")
+    assert(!FS.File.file?(root + "/dist/prelude/.cache/note.txt"))
+    let _ = Marqraft.Project.createPage(root, "Clash", "/prelude/note/", "page", "").try
+    assert(!Marqraft.Project.load(root).ok?)
+    assert(!Marqraft.Build.run(root).ok?)
+  end
+  it "rejects unknown, reserved, overlapping, and invalid mounts" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-invalid-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/index.html", "prelude 0.4").try
+    assert(!withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/missing\"}]").ok?)
+    assert(!withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"content\"}]").ok?)
+    assert(!withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"../outside\"}]").ok?)
+    assert(!withMounts(root, "[{\"path\": \"/\", \"dir\": \"reference/prelude\"}]").ok?)
+    assert(!withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}, {\"path\": \"/prelude/old/\", \"dir\": \"reference/prelude\"}]").ok?)
+  end
+  it "serves mounted pages with displayable content types" do
+    assert(Marqraft.Theme.mimeType("prelude/0.4/index.html") == "text/html; charset=utf-8")
+    assert(Marqraft.Theme.mimeType("prelude/0.4/algebra.md") == "text/markdown; charset=utf-8")
+  end
+  it "renders generated Markdown through the theme, read-only" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-pages-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/algebra.md", "---\npackage: prelude\n---\n\n# Algebra\n\nSee [Binary](binary.md) and [the manual](https://kex.run/docs).").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/binary.md", "# Binary\n\nBack to [Algebra](algebra.md#types).").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true, \"title\": \"Prelude\"}]").try
+    let site = Marqraft.Project.load(root).try
+    let algebra = Marqraft.Project.page(site, "mount-prelude-0-4-algebra").try
+    assert(algebra.title == "Algebra")
+    assert(algebra.path == "/prelude/0.4/algebra/")
+    assert(!algebra.body.contains?("# Algebra"))
+    assert(algebra.body.contains?("[Binary](/prelude/0.4/binary/)"))
+    assert(algebra.body.contains?("[the manual](https://kex.run/docs)"))
+    let binary = Marqraft.Project.page(site, "mount-prelude-0-4-binary").try
+    assert(binary.body.contains?("[Algebra](/prelude/0.4/algebra/#types)"))
+    let html = Marqraft.Theme.render(site, algebra, false).try
+    assert(html.contains?("<h1>Algebra</h1>"))
+  end
+  it "publishes rendered pages while hiding their sources" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-publish-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/algebra.md", "# Algebra").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true, \"title\": \"Prelude\"}]").try
+    let site = Marqraft.Project.load(root).try
+    let algebra = Marqraft.Project.page(site, "mount-prelude-0-4-algebra").try
+    let index = Marqraft.Project.page(site, "mount-prelude-0-4").try
+    assert(index.path == "/prelude/0.4/")
+    assert(index.body.contains?("[Algebra](/prelude/0.4/algebra/)"))
+    let landing = Marqraft.Project.page(site, "mount-prelude").try
+    assert(landing.path == "/prelude/")
+    assert(landing.body.contains?("[0.4](/prelude/0.4/)"))
+    assert(!Marqraft.Server.mountedPath(root, "prelude/0.4/algebra.md").ok?)
+    assert(!Marqraft.Project.save(root, algebra.id, algebra.revision, algebra.source).ok?)
+    assert(!Marqraft.API.document(root, algebra.id).ok?)
+    Marqraft.Build.run(root).try
+    assert(FS.File.read(root + "/dist/prelude/0.4/algebra/index.html").try.contains?("<h1>Algebra</h1>"))
+    assert(!FS.File.file?(root + "/dist/prelude/0.4/algebra.md"))
+  end
+  it "keeps generated pages out of the authoring tree" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-meta-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/algebra.md", "# Algebra").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true, \"title\": \"Prelude\"}]").try
+    let metadata = Marqraft.API.metadata(root).try
+    let pages = Marqraft.Data.list(metadata.get("pages").or([])).or([])
+    assert(pages.any? { |page| Marqraft.Data.text(page, "path", "") == "/" })
+    assert(!pages.any? { |page| Marqraft.Data.text(page, "path", "") == "/prelude/0.4/algebra/" })
+    let navSource = Marqraft.Data.pretty(Marqraft.Data.object(metadata).or({}).get("navigation").or([]))
+    assert(!navSource.contains?("mount-prelude"))
+  end
+  it "leaves selector rendering to themes" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-theme-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/index.html", "prelude 0.4").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}]").try
+    let site = Marqraft.Project.load(root).try
+    let home = site.pages.find { |item| Marqraft.Theme.pathOf(item) == "/" }.try
+    let html = Marqraft.Theme.render(site, home, false).try
+    assert(!html.contains?("marq-versions"))
+    assert(!Marqraft.Theme.bindings("<marqraft-content source=\"versions\"></marqraft-content>", { "versions": "" }, false).ok?)
+  end
+end
+
+describe "generated mounts and the authored tree" do
+  it "keeps a rendered mount's pages out of navigation.json when a page is created" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-create-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/list.md", "# List\n").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true}]").try
+    Marqraft.Project.createPage(root, "Notes", "/notes/", "page", "").try
+    assert(Marqraft.Project.load(root).ok?)
+    assert(!FS.File.read(root + "/.marqraft/navigation.json").try.contains?("mount-"))
+  end
+end
+
+foul withMounts(root: String, source: String) -> Void or! String do
+  let config = Marqraft.Data.object(Marqraft.Data.read(Marqraft.Store.safePath(root, "marqraft.jsonc").try).try).try
+  let mounts = Marqraft.Data.decode(source).try
+  Marqraft.Store.write(root, "marqraft.jsonc", Marqraft.Data.pretty(config.put("mounts", mounts))).try
+  # Loading validates; a bad mount fails the helper itself.
+  let _ = Marqraft.Project.load(root).try
+  return Ok(())
+end

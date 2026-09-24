@@ -59,6 +59,8 @@ params: [context: {String: Any}]
 | `assetsUrl` | `/_theme/`, the URL of the theme's `assets/` folder      |
 | `logo`      | `<img class="site-logo">` when the logo setting is set (raw) |
 | `authoring` | `true` in `marq dev`, `false` in builds                  |
+| `mounts`    | the site's mounts: `path`, `dir`, and `versions` (`name` + `path` per immediate subdirectory), for the theme to iterate |
+| `page`      | a generated page's own data: what a fragments mount's sidecar puts in `data` (`context["page"].try["version"].or("")`); empty otherwise |
 
 Content regions are bound with elements rather than interpolation, so the
 authoring server can attach the editor to exactly that region and builds can
@@ -102,11 +104,88 @@ In `marq dev`, the collections region adds new collections, and the
 collection region adds pages inside the current collection. Themes without
 scopes show the whole tree.
 
+A top-level entry with `"listed": false` in `.marqraft/navigation.json` is
+built and linkable but left out of `scope="collections"` and the whole-tree
+navigation, except while the reader is inside it. `marq copy-collection
+--unlist` sets it on a book's previous edition.
+
 `<marqraft-action operation="create-page" label="New page">` renders a button
 in dev and nothing in builds.
 
 A page whose template does not exist in the current theme renders with
 `page.html.ket`, so every theme must provide it.
+
+### Generated mounts
+
+A site serves read-only generated directories — API references written by an
+external generator, for example — through mounts declared in
+`marqraft.jsonc`:
+
+```jsonc
+{ "mounts": [
+  { "path": "/prelude/", "dir": "reference/prelude" },
+  { "path": "/search.json", "file": "reference/search.json" }
+] }
+```
+
+`dir` mounts a directory inside the project under a URL prefix; `file`
+mounts one generated file at an exact URL (a search index, `versions.json`).
+Either way the output serves in both `marq dev` and `dist/`, is never
+editable, and carries no authoring bindings. Collisions with pages or uploads
+are errors, and `content/`, `public/`, `.marqraft/`, and the theme directory
+cannot be mounted. Hidden files are skipped.
+
+Each mount's immediate subdirectories are exposed as `versions` (`name` and
+`path` per directory, sorted), so the theme can render a version selector
+from `context["mounts"]`. Version truth lives with the generator's output —
+a new release appears by generating it, with no site edit.
+
+### Rendered mounts
+
+With `"pages": true` (plus an optional `title` and `template`, defaulting to
+the directory name and `"page"`), a mount's Markdown files render through the
+site's templates instead of serving raw:
+
+```jsonc
+{ "path": "/prelude/", "dir": "reference/prelude", "pages": true, "title": "Prelude" }
+```
+
+Identity, title, and URL derive from each file: the URL mirrors the relative
+path, the title is a leading `# ` heading (removed from the body), and
+frontmatter-style header lines are dropped unread. `.md`-relative links
+between generated files are rewritten to page URLs; anything unresolvable
+stays verbatim. Every version and the mount root get a synthetic index page
+listing their members, unless a real `index.md` already claims that URL.
+
+A producer that renders its own pages — linked, highlighted API signatures
+that Markdown cannot carry — mounts them with `"format": "fragments"`:
+
+```jsonc
+{ "path": "/prelude/", "dir": "reference/prelude", "pages": true, "format": "fragments", "template": "reference" }
+```
+
+Each page is an HTML body plus a `<page>.page.json` sidecar beside it:
+
+```json
+{ "title": "List", "description": "Ordered sequences.", "path": "/prelude/0.4/list/",
+  "template": "reference", "body": "list.html", "data": { "version": "0.4" } }
+```
+
+The body is used as-is; `path` must lie inside the mount; `template`
+overrides the mount's; `data` reaches the template as `context["page"]`. A
+sidecar at a version's own URL replaces the synthetic version index, and a
+`nav.json` in the version directory (`{ "title", "path", "children" }`)
+shapes that version's navigation instead of a flat list. Sidecars, bodies
+and `nav.json` are not served; the mount's other files (Markdown twins,
+JSON indexes) are. Tey's `tey docs build --format fragments` writes this
+layout.
+
+Generated pages publish and render like any other, but nothing may edit
+them: `save`, draft changes, nesting under them, and the document API all
+refuse with a read-only error, they render without editing bindings in
+`marq dev`, and the authoring sidebar only ever shows the file tree. Their
+`.md` sources (and any `index.html` shadowed by a synthetic index) are
+neither served nor published.
 
 ### Editable-region contract
 

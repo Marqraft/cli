@@ -9,7 +9,7 @@ The executable is `marq`.
 
 ## Build
 
-Requirements: Tey with the Kex `0.4.0-beta.2` toolchain, Erlang/OTP, and Node.js 22.
+Requirements: Tey with the Kex `0.4.0-beta.2` toolchain, Erlang/OTP 27 or newer, and Node.js 22.
 
 ```sh
 . scripts/env.sh     # select the pinned Kex toolchain (TEY_KEX, KEX_ERL)

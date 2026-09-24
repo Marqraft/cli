@@ -11,22 +11,22 @@ let files(name: String) -> {String: String} do
 end
 
 let book -> {String: String} = {
-  "marqraft-theme.jsonc": Kex.embed("../themes/book/marqraft-theme.jsonc"),
-  "style.css": Kex.embed("../themes/book/style.css"),
-  "page.html.ket": Kex.embed("../themes/book/page.html.ket"),
-  "landing.html.ket": Kex.embed("../themes/book/landing.html.ket"),
-  "starters/page.md": Kex.embed("../themes/book/starters/page.md"),
-  "starters/landing.md": Kex.embed("../themes/book/starters/landing.md"),
-  "assets/favicon.svg": Kex.embed("../themes/book/assets/favicon.svg")
+  "marqraft-theme.jsonc": Kex.embed("../../themes/book/marqraft-theme.jsonc"),
+  "style.css": Kex.embed("../../themes/book/style.css"),
+  "page.html.ket": Kex.embed("../../themes/book/page.html.ket"),
+  "landing.html.ket": Kex.embed("../../themes/book/landing.html.ket"),
+  "starters/page.md": Kex.embed("../../themes/book/starters/page.md"),
+  "starters/landing.md": Kex.embed("../../themes/book/starters/landing.md"),
+  "assets/favicon.svg": Kex.embed("../../themes/book/assets/favicon.svg")
 }
 
 let basic -> {String: String} = {
-  "marqraft-theme.jsonc": Kex.embed("../themes/basic/marqraft-theme.jsonc"),
-  "style.css": Kex.embed("../themes/basic/style.css"),
-  "page.html.ket": Kex.embed("../themes/basic/page.html.ket"),
-  "landing.html.ket": Kex.embed("../themes/basic/landing.html.ket"),
-  "starters/page.md": Kex.embed("../themes/basic/starters/page.md"),
-  "starters/landing.md": Kex.embed("../themes/basic/starters/landing.md"),
-  "assets/favicon.svg": Kex.embed("../themes/basic/assets/favicon.svg")
+  "marqraft-theme.jsonc": Kex.embed("../../themes/basic/marqraft-theme.jsonc"),
+  "style.css": Kex.embed("../../themes/basic/style.css"),
+  "page.html.ket": Kex.embed("../../themes/basic/page.html.ket"),
+  "landing.html.ket": Kex.embed("../../themes/basic/landing.html.ket"),
+  "starters/page.md": Kex.embed("../../themes/basic/starters/page.md"),
+  "starters/landing.md": Kex.embed("../../themes/basic/starters/landing.md"),
+  "assets/favicon.svg": Kex.embed("../../themes/basic/assets/favicon.svg")
 }
 

@@ -29,11 +29,19 @@ jobs:
 
       # Matches kexhq/kex's own CI (.github/workflows/ci.yml, the
       # build-tey job) so the toolchain built here behaves the same way.
+      # Marqraft calls OTP 27+ functions (json:encode/1, and
+      # binary:encode_hex/2 from OTP 26); ubuntu-latest's erlang-base is
+      # OTP 25, where every test that scaffolds a site failed with :undef.
+      # Installed before Kex so the compiler and Tey run on the same OTP.
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+
       - name: Install Kex build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libgmp-dev libpcre2-dev libreadline-dev \
-            libssl-dev erlang-base libboost-context-dev
+            libssl-dev libboost-context-dev
 
       # --parallel (unbounded, i.e. one job per core) OOM-kills cc1plus on
       # this runner's 7GB: kexhq/kex@main currently also builds the LSP

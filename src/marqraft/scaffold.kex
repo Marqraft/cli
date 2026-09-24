@@ -21,8 +21,8 @@ foul create(directory: String, theme: String) -> Void or! String do
   # The theme is referenced by name, not copied, so it can be switched later.
   let files = {
     "marqraft.jsonc": Marqraft.Data.pretty({ "title": title, "theme": reference, "settings": settings }),
-    "content/index.md": published(Marqraft.Document.create(home, "Introduction", "/", "page", Kex.embed("../themes/welcome.md"))),
-    "content/tutorial/index.md": published(Marqraft.Document.create(tutorial, "Getting started", "/tutorial/", "page", Kex.embed("../themes/tutorial.md"))),
+    "content/index.md": published(Marqraft.Document.create(home, "Introduction", "/", "page", Kex.embed("../../themes/welcome.md"))),
+    "content/tutorial/index.md": published(Marqraft.Document.create(tutorial, "Getting started", "/tutorial/", "page", Kex.embed("../../themes/tutorial.md"))),
     ".marqraft/navigation.json": Marqraft.Data.pretty([{ "id": home, "children": [] }, { "id": tutorial, "children": [] }]),
     "public/images/.gitkeep": "",
     ".gitignore": "dist/\n.marqraft/cache/\n*.marq-*\n",

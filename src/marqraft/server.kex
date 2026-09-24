@@ -39,10 +39,10 @@ foul start(directory: String, port: Integer) -> Void or! String do
       end
     end
     get "/__marqraft/editor.js" do |_|
-      Response.Text { body: Kex.embed("../assets/editor.js"), headers: noCache.add("Content-Type", "text/javascript; charset=utf-8").try }
+      Response.Text { body: Kex.embed("../../assets/editor.js"), headers: noCache.add("Content-Type", "text/javascript; charset=utf-8").try }
     end
     get "/__marqraft/editor.css" do |_|
-      Response.Text { body: Kex.embed("../assets/marqraft-author.css"), headers: noCache.add("Content-Type", "text/css; charset=utf-8").try }
+      Response.Text { body: Kex.embed("../../assets/marqraft-author.css"), headers: noCache.add("Content-Type", "text/css; charset=utf-8").try }
     end
     get "/" do |env|
       if allowedHost?(env, port)

@@ -13,6 +13,9 @@ main(rawArgs) do
     .command("dev", "[directory]", "Author and preview locally", ~serveSite)
     .command("build", "[directory]", "Generate static output", ~buildSite)
     .command("eject-theme", "[directory]", "Copy the built-in theme into themes/ to customize it", ~ejectTheme)
+    .string("title", None, "copy-collection: title of the copy's top page", None, false)
+    .flag("unlist", None, "copy-collection: hide the original from the collections menu")
+    .command("copy-collection", "<from-path> <to-path> [directory]", "Copy a collection to a new URL, e.g. a book's next edition", ~copyCollection)
   let parsed = cli.parse(args)
   if parsed.ok? && parsed.try.flagEnabled?("version")
     IO.printLine("marq 0.1.0")
@@ -51,6 +54,18 @@ foul ejectTheme(options: ParsedOptions) -> Integer do
   return fail("eject-theme accepts at most one directory") if options.arguments.count > 1
   let destination = Marqraft.Scaffold.eject(options.arguments.first.or(".")).try
   IO.printLine("Copied the theme to ${destination}. Edit its templates and style.css; marqraft.jsonc now points at it.")
+  return 0
+rescue |error|
+  return fail("${error}")
+end
+
+foul copyCollection(options: ParsedOptions) -> Integer do
+  return fail("copy-collection takes <from-path> <to-path> [directory]") if options.arguments.count < 2 || options.arguments.count > 3
+  let from = options.arguments.first.or("")
+  let to = options.arguments.drop(1).first.or("")
+  let directory = options.arguments.drop(2).first.or(".")
+  let copied = Marqraft.Project.copyCollection(directory, from, to, options.value("title", ""), options.flagEnabled?("unlist")).try
+  IO.printLine("Copied ${from} to ${copied.path} (${copied.title}).")
   return 0
 rescue |error|
   return fail("${error}")

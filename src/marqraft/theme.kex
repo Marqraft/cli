@@ -76,7 +76,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
   let title = authoring? then "<h1 data-marq-title>${Marqraft.Content.escape(page.title)}</h1>" else "<h1>${Marqraft.Content.escape(page.title)}</h1>"
   let content = authoring? then "<div data-marq-body>${body}</div>" else body
   let settings = Marqraft.Data.object(site.config.get("settings").or({})).try
-  let links = navigation(site, site.navigation, authoring?, page.id)
+  let links = navigation(site, Marqraft.Project.visible(site.navigation, page.id), authoring?, page.id)
   # A collection is a top-level navigation entry; its nested pages are its members.
   let collectionNodes = site.navigation.filter { |node| containsPage?(node, page.id) }
   let collectionNode = collectionNodes.first.or({})
@@ -273,7 +273,10 @@ end
 # The top-level navigation entries: one link per collection. The collection
 # holding the current page is marked aria-current="true", the page itself "page".
 foul collectionsHtml(site: Site, current: String, authoring?: Bool) -> String do
-  let items = site.navigation.map do |node|
+  # An unlisted collection (an older edition) is left out, unless the
+  # reader is inside it.
+  let shown: [Any] = Marqraft.Project.visible(site.navigation, current)
+  let items = shown.map do |node|
     let id = Marqraft.Data.text(node, "id", "")
     match Marqraft.Project.page(site, id) do
       Error(_) => ""

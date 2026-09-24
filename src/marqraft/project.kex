@@ -296,6 +296,20 @@ foul fragmentBodyOf(page: Page) -> String do
   return fragmentBody(page.file, bodyName)
 end
 
+# A top-level entry marked "listed": false stays out of collection menus
+# (an older edition after copy-collection --unlist); it is still built and
+# linkable.
+let listed?(node: Any) -> Bool = Marqraft.Data.flag(node, "listed", true)
+
+# The top-level entries a menu shows: every listed one, plus an unlisted
+# one while the reader is inside it.
+let visible(nodes: [Any], current: String) -> [Any] do
+  return [] if nodes.empty?
+  let node = nodes.first.or({})
+  let rest = visible(nodes.drop(1), current)
+  return (listed?(node) || Marqraft.Theme.containsPage?(node, current)) then [node] + rest else rest
+end
+
 let pageId(page: Page) -> String = page.id
 let pagePath(page: Page) -> String = page.path
 let pageFile(page: Page) -> String = page.file
@@ -613,6 +627,105 @@ foul createPage(root: String, title: String, path: String, template: String, par
   let nav = parent == "" then site.navigation + [node] else insertChild(site.navigation, parent, node)
   Marqraft.Store.write(root, ".marqraft/navigation.json", Marqraft.Data.pretty(nav)).try
   return Ok(created)
+end
+
+# Copies the pages under `from` (a page path such as /guide/0.4/) to `to`,
+# with fresh ids, as a new top-level entry right after the original — the
+# way a versioned book cuts its next edition. Every page of the subtree must
+# live under `from`; links inside the copy that pointed into `from` point
+# into `to`. `unlist` hides the original from the collections menu (it is
+# still built and linkable).
+foul copyCollection(root: String, from: String, to: String, title: String, unlist: Bool) -> Page or! String do
+  let site = load(root).try
+  return Error("invalid URL path: ${to}") if !Marqraft.Document.urlPath?(to)
+  return Error("${to} is inside ${from}") if to.startsWith?(from)
+  let source = site.pages.find { |item| item.path == from && !item.generated? }
+  return Error("no page at ${from}") if !source.set?
+  let sourceId = source.try.id
+  let node = findNode(stripGenerated(site.navigation, generatedIds(site)), sourceId)
+  return Error("${from} is not in the navigation") if !node.set?
+  let ids = subtreeIds(node.try)
+  let members = ids.map { |id| page(site, id).try }
+  let outside = members.map { |item| Marqraft.Theme.pathOf(item) }.reject { |path| path.startsWith?(from) }
+  return Error("${outside.first.or("")} is not under ${from}; only a subtree under one path can be copied") if !outside.empty?
+  let renamed = ids.map { |id| (id, Marqraft.Store.identifier) }
+  let copies = members.map { |item| copiedPage(item, from, to, renamed, title, item.id == sourceId) }
+  let taken = site.pages.map { |item| Marqraft.Theme.pathOf(item).lowerCase }
+  let clashes = copies.flatMap do |pair|
+    let (path, _) = pair
+    taken.contains?(path.lowerCase) then [path] else []
+  end
+  return Error("URL collision: ${clashes.first.or("")} is already used") if !clashes.empty?
+  copies.each do |pair|
+    let (path, text) = pair
+    let file = path == "/" then "content/index.md" else "content${path}index.md"
+    return Error("destination already exists: ${file}") if FS.File.file?(root + "/" + file)
+    Marqraft.Store.write(root, file, text).try
+  end
+  let copiedNode = renameNode(node.try, renamed)
+  let authoredTree = stripGenerated(site.navigation, generatedIds(site))
+  let updated = authoredTree.flatMap do |item|
+    let id = Marqraft.Data.text(item, "id", "")
+    if id == sourceId
+      let original = unlist then Marqraft.Data.object(item).or({}).put("listed", false) else item
+      [original, copiedNode]
+    else
+      [item]
+    end
+  end
+  Marqraft.Store.write(root, ".marqraft/navigation.json", Marqraft.Data.pretty(updated)).try
+  let copied = load(root).try
+  return page(copied, renamedId(renamed, sourceId))
+end
+
+# (new path, new source) for one page of the copied subtree.
+let copiedPage(item: Page, from: String, to: String, renamed: [(String, String)], title: String, top: Bool) -> (String, String) do
+  let path = to + item.path.drop(from.count)
+  let lines = item.source.split("\n")
+  let closing = lines.drop(1).takeWhile { |line| line.trim != "---" }.count + 1
+  let front = lines.take(closing).map do |line|
+    if line.startsWith?("id:")
+      "id: ${JSON.stringify(renamedId(renamed, item.id))}"
+    elif line.startsWith?("path:")
+      "path: ${JSON.stringify(path)}"
+    elif line.startsWith?("title:") && top && !title.empty?
+      "title: ${JSON.stringify(title)}"
+    else
+      line
+    end
+  end
+  let body = lines.drop(closing).join("\n").replace("](${from}", "](${to}").replace("href=\"${from}", "href=\"${to}")
+  return (path, (front + [body]).join("\n"))
+end
+
+let renamedId(renamed: [(String, String)], id: String) -> String do
+  let hits = renamed.flatMap do |pair|
+    let (old, fresh) = pair
+    old == id then [fresh] else []
+  end
+  return hits.first.or(id)
+end
+
+let findNode(nodes: [Any], id: String) -> Any? do
+  return None if nodes.empty?
+  let node = nodes.first.or({})
+  return Just(node) if Marqraft.Data.text(node, "id", "") == id
+  match findNode(Marqraft.Theme.childrenOf(node), id) do
+    Just(found) => return Just(found)
+    None => return findNode(nodes.drop(1), id)
+  end
+end
+
+let subtreeIds(node: Any) -> [String] do
+  let children = Marqraft.Theme.childrenOf(node)
+  return [Marqraft.Data.text(node, "id", "")] + children.flatMap { |child| subtreeIds(child) }
+end
+
+let renameNode(node: Any, renamed: [(String, String)]) -> Any do
+  let id = Marqraft.Data.text(node, "id", "")
+  let children = Marqraft.Theme.childrenOf(node).map { |child| renameNode(child, renamed) }
+  let copy: Any = { "id": renamedId(renamed, id), "children": children }
+  return copy
 end
 
 let insertChild(nodes: [Any], parent: String, child: Any) -> [Any] do

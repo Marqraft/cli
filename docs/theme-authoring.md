@@ -104,6 +104,11 @@ In `marq dev`, the collections region adds new collections, and the
 collection region adds pages inside the current collection. Themes without
 scopes show the whole tree.
 
+A top-level entry with `"listed": false` in `.marqraft/navigation.json` is
+built and linkable but left out of `scope="collections"` and the whole-tree
+navigation, except while the reader is inside it. `marq copy-collection
+--unlist` sets it on a book's previous edition.
+
 `<marqraft-action operation="create-page" label="New page">` renders a button
 in dev and nothing in builds.
 

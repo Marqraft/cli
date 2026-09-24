@@ -31,6 +31,8 @@ marq new kex-guide --theme ../theme-krix  # a theme from its own repository
 marq dev my-book            # author at http://localhost:4173 (loopback only)
 marq build my-book          # write static output to my-book/dist/
 marq eject-theme my-book    # copy the theme into my-book/themes/ to customize it
+marq copy-collection /guide/v1/ /guide/v2/ my-book --title "Guide 2" --unlist
+                            # cut a book's next edition; --unlist hides the old one
 ```
 
 Run `marq` through `escript` if your shell does not find the right Erlang:

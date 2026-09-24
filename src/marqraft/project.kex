@@ -624,7 +624,11 @@ foul createPage(root: String, title: String, path: String, template: String, par
   Marqraft.Store.write(root, file, source).try
   # Unlisted pages remain available in the authoring sidebar if navigation persistence fails.
   let node = { "id": created.id, "children": [] }
-  let nav = parent == "" then site.navigation + [node] else insertChild(site.navigation, parent, node)
+  # Only the authored tree is persisted: a rendered mount's nodes live in
+  # site.navigation too, and written back they would name pages
+  # .marqraft/navigation.json cannot resolve on the next load.
+  let authoredTree = stripGenerated(site.navigation, generatedIds(site))
+  let nav = parent == "" then authoredTree + [node] else insertChild(authoredTree, parent, node)
   Marqraft.Store.write(root, ".marqraft/navigation.json", Marqraft.Data.pretty(nav)).try
   return Ok(created)
 end

@@ -121,6 +121,18 @@ describe "generated mounts" do
   end
 end
 
+describe "generated mounts and the authored tree" do
+  it "keeps a rendered mount's pages out of navigation.json when a page is created" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-create-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.4/list.md", "# List\n").try
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true}]").try
+    Marqraft.Project.createPage(root, "Notes", "/notes/", "page", "").try
+    assert(Marqraft.Project.load(root).ok?)
+    assert(!FS.File.read(root + "/.marqraft/navigation.json").try.contains?("mount-"))
+  end
+end
+
 foul withMounts(root: String, source: String) -> Void or! String do
   let config = Marqraft.Data.object(Marqraft.Data.read(Marqraft.Store.safePath(root, "marqraft.jsonc").try).try).try
   let mounts = Marqraft.Data.decode(source).try

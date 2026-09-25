@@ -231,7 +231,7 @@ foul upload(root: String, data: {String: Any}) -> {String: Any} or! String do
 end
 
 foul metadata(root: String) -> {String: Any} or! String do
-  let site = Marqraft.Project.load(root).try
+  let site = Marqraft.Live.site(root).try
   let configSource = FS.File.read(root + "/marqraft.jsonc").try
   let navSource = FS.File.read(root + "/.marqraft/navigation.json").try
   let menusSource = FS.File.read(root + "/.marqraft/menus.json").or("")
@@ -249,7 +249,7 @@ foul metadata(root: String) -> {String: Any} or! String do
 end
 
 foul document(root: String, id: String) -> {String: Any} or! String do
-  let site = Marqraft.Project.load(root).try
+  let site = Marqraft.Live.site(root).try
   let page = Marqraft.Project.page(site, id).try
   return Error("generated page ${page.title} is read-only") if page.generated?
   return Ok(Marqraft.Document.metadata(page).merge({ "source": page.source, "body": page.body, "html": Marqraft.Content.render(page.body, true, root, Marqraft.Data.list(site.theme.get("blocks").or([])).try) }))

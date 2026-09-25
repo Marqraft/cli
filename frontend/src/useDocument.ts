@@ -4,6 +4,7 @@ import { api } from './api';
 import { preserveSlices, replaceBody, serialize } from './format';
 import { SaveQueue, type SaveState } from './save';
 import { titleHost } from './hosts';
+import { onSiteChange } from './live';
 import type { Doc, Project } from './types';
 
 type Metadata = { title: string; path: string; draft: boolean; template: string; version: string };
@@ -67,10 +68,12 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
     return () => { queue.current?.dispose(); window.removeEventListener('beforeunload', beforeUnload); };
   }, []);
 
-  // External changes: reload clean documents, keep both versions when edits overlap.
+  // External changes — another browser, another program, or this editor's own
+  // saves, pushed by the server as they happen: reload clean documents, keep
+  // both versions when edits overlap.
   useEffect(() => {
     let stopped = false, running = false;
-    const timer = setInterval(async () => {
+    const check = async () => {
       if (running) return; running = true;
       try {
         const fresh = await api<Project>('project'); if (stopped) return;
@@ -97,8 +100,9 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
         setProject(fresh);
       } catch (error) { if (!stopped) setMessage(`Cannot check for external changes: ${String((error as Error).message ?? error)}`); }
       finally { running = false; }
-    }, 2000);
-    return () => { stopped = true; clearInterval(timer); };
+    };
+    const stop = onSiteChange(() => void check());
+    return () => { stopped = true; stop(); };
   }, []);
 
   const applyMetadata = (field: keyof Metadata, value: string | boolean) => {

@@ -117,3 +117,11 @@ with status 400 or 409.
 | POST   | `operation`           | `id`, `input`                                   | the result of the mapped action |
 
 Revisions are SHA-256 digests of the file contents last read.
+
+`marq dev` keeps the loaded site in memory (`Marqraft.Live`) and reloads it
+after every successful authoring action and whenever a watcher sees the
+project's files change: authored files twice a second, mounted output every
+third second. Each reload is announced as `{"type": "changed"}` over the
+WebSocket at `/__marqraft/live` to every open editor, which then checks its
+page and project as it used to every two seconds; while the socket is down,
+editors fall back to that polling.

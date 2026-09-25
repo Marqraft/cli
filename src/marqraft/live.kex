@@ -39,6 +39,8 @@ record Hub do
   logs : {String: [Binary]} = {}
   # Page id -> the connection that saves it.
   savers : {String: String} = {}
+  # Connection id -> its number among the editors on its page (Instance 1, 2, ...).
+  numbers : {String: Integer} = {}
 end
 
 serving Hub do
@@ -48,16 +50,20 @@ serving Hub do
   end
 
   # An editor opens a page. The first one seeds the shared document and saves
-  # it; a later one is sent what the document holds so far.
+  # it; a later one is sent what the document holds so far. Each editor on a
+  # page gets the lowest number no other editor on it has.
   foul slot enter(id: String, page: String) -> Void do
     let seed = !@pages.values.contains?(page)
+    let taken = @pages.filter { |_, edited| edited == page }.keys.map { |editor| @numbers.get(editor).or(0) }
+    let number = firstFree(taken, 1)
+    new.numbers = @numbers.put(id, number)
     new.pages = @pages.put(id, page)
     new.logs = seed then @logs.put(page, []) else @logs
     new.savers = seed then @savers.put(page, id) else @savers
     let saver = new.savers.get(page).or("") == id
     match @sockets.get(id) do
       Just(socket) => do
-        let _ = deliver(socket, Text("{\"type\":\"joined\",\"seed\":${seed},\"saver\":${saver}}"))
+        let _ = deliver(socket, Text("{\"type\":\"joined\",\"seed\":${seed},\"saver\":${saver},\"instance\":${number}}"))
         new.logs.get(page).or([]).each { |frame| deliver(socket, BinaryMessage(frame)) }
       end
       None => Void
@@ -84,6 +90,7 @@ serving Hub do
     let page = @pages.get(id).or("")
     new.sockets = @sockets.delete(id)
     new.pages = @pages.delete(id)
+    new.numbers = @numbers.delete(id)
     let others = new.pages.filter { |_, edited| edited == page }.keys
     if !page.empty? && others.empty?
       new.logs = @logs.delete(page)
@@ -101,6 +108,8 @@ serving Hub do
     return new
   end
 end
+
+let firstFree(taken: [Integer], number: Integer) -> Integer = taken.contains?(number) then firstFree(taken, number + 1) else number
 
 # Sends one message to an editor, true when it went out. Connection.send only
 # type-checks with an inline Text(...): given any other Message — a

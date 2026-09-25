@@ -14,10 +14,10 @@ describe "live editing sessions" do
     # The first editor on a page seeds it and saves it; the next one does neither.
     let first = WebSocket.connect(url).try
     first.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
-    assert(text(first) == "{\"type\":\"joined\",\"seed\":true,\"saver\":true}")
+    assert(text(first) == "{\"type\":\"joined\",\"seed\":true,\"saver\":true,\"instance\":1}")
     let second = WebSocket.connect(url).try
     second.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
-    assert(text(second) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false}")
+    assert(text(second) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false,\"instance\":2}")
 
     # Document updates (0) and cursors (1) reach the other editor on the page.
     assert(Marqraft.Live.deliver(first, binary("00aa")))
@@ -28,16 +28,17 @@ describe "live editing sessions" do
     # An editor on another page hears nothing of this one.
     let elsewhere = WebSocket.connect(url).try
     elsewhere.send(Text("{\"type\": \"join\", \"page\": \"other\"}")).try
-    assert(text(elsewhere) == "{\"type\":\"joined\",\"seed\":true,\"saver\":true}")
+    assert(text(elsewhere) == "{\"type\":\"joined\",\"seed\":true,\"saver\":true,\"instance\":1}")
 
     # The saver leaving hands the page to the editor still on it.
     first.close
     assert(text(second) == "{\"type\":\"saver\"}")
 
-    # A late editor gets the kept updates, not the cursors.
+    # A late editor gets the kept updates, not the cursors, and the lowest
+    # free number: the first editor's, since it left.
     let late = WebSocket.connect(url).try
     late.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
-    assert(text(late) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false}")
+    assert(text(late) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false,\"instance\":1}")
     assert(bytes(late) == "00aa")
 
     # The saver's compacted document (2) replaces the kept updates; another
@@ -46,7 +47,7 @@ describe "live editing sessions" do
     assert(Marqraft.Live.deliver(second, binary("02cc")))
     let after = WebSocket.connect(url).try
     after.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
-    assert(text(after) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false}")
+    assert(text(after) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false,\"instance\":3}")
     assert(bytes(after) == "02cc")
 
     second.close

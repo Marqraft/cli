@@ -20,7 +20,6 @@ import { useDocument, useTitleEditing } from './useDocument';
 import { useSlashMenu } from './useSlashMenu';
 import { PageSession } from './collab';
 import { CoEditing } from './collaboration';
-import { identity } from './identity';
 import type { Doc, Project } from './types';
 import { EditorToolbar } from './components/EditorToolbar';
 import { SlashMenu } from './components/SlashMenu';
@@ -48,15 +47,14 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   const commands = useMemo(() => slashCommands(project.theme.commands, project.theme.blocks, pickImage), [project.theme]);
   const editorRef = useRef<Editor | null>(null);
   const slashMenu = useSlashMenu(commands, editorRef);
-  // The page as everyone who has it open edits it, and who this editor is to them.
+  // The page as everyone who has it open edits it.
   const session = useMemo(() => new PageSession(initial.id), []);
-  const user = useMemo(identity, []);
 
   // The schema is fixed for the life of the page; theme block changes reload it.
   const extensions = useMemo(() => [
     // Undo comes with collaboration: each editor undoes only its own changes.
     StarterKit.configure({ link: { openOnClick: false }, trailingNode: false, undoRedo: false }),
-    CoEditing.configure({ session, user }),
+    CoEditing.configure({ session }),
     // Markdown images are inline: as a block node, an image inside a rendered <p> was split
     // out on parse, leaving an empty paragraph that still saved the image's source.
     TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,

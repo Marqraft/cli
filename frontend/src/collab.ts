@@ -5,6 +5,10 @@ import { live } from './live';
 // Frame kinds, the first byte of every binary message (see Marqraft.Live.Hub).
 const UPDATE = 0, AWARENESS = 1, COMPACTED = 2;
 
+// An editor's colour follows its number on the page, so Instance 2 keeps its
+// colour for as long as it stays.
+const colours = ['#2b6cb0', '#e0533d', '#2f855a', '#b7791f', '#9f7aea', '#d53f8c', '#0f8a8a', '#6b5bd2'];
+
 type Events = {
   /** This editor is the first on the page: it fills the shared document. */
   seed: () => void;
@@ -20,7 +24,8 @@ type Events = {
  * - `doc`'s "body" fragment is the page body, bound to the editor.
  * - `meta` holds the frontmatter the editor changes: title, path, draft,
  *   template, version.
- * - `awareness` carries each editor's caret, selection, name and colour.
+ * - `awareness` carries each editor's caret and selection, named by the
+ *   number the server gives it on the page: Instance 1, Instance 2, ...
  */
 export class PageSession {
   readonly doc = new Y.Doc();
@@ -66,6 +71,8 @@ export class PageSession {
 
   private received(message: Record<string, unknown>) {
     if (message.type === 'joined') {
+      const number = typeof message.instance === 'number' ? message.instance : 1;
+      this.awareness.setLocalStateField('user', { name: `Instance ${number}`, color: colours[(number - 1) % colours.length] });
       // The seed first, so a new saver knows whether it holds the page as saved.
       if (message.seed === true) {
         // After a reconnect the server may have forgotten the page: what this

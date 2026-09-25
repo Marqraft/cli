@@ -2,7 +2,6 @@ import { Extension } from '@tiptap/core';
 import { redo, undo, yCursorPlugin, ySyncPlugin, yUndoPlugin, yUndoPluginKey } from 'y-prosemirror';
 import type { EditorState } from '@tiptap/pm/state';
 import type { PageSession } from './collab';
-import type { Identity } from './identity';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -14,13 +13,13 @@ declare module '@tiptap/core' {
   }
 }
 
-type Options = { session: PageSession | null; user: Identity };
+type Options = { session: PageSession | null };
 
 /**
  * Binds the editor to a page's shared document, on upstream y-prosemirror:
  * the body syncs with every other editor on the page, their carets and
- * selections show with their names and colours, and undo covers only this
- * editor's own changes.
+ * selections show named and coloured by their number on the page, and undo
+ * covers only this editor's own changes.
  *
  * Not TipTap's Collaboration extensions: their @tiptap/y-tiptap fork
  * re-resolves the caret by content whenever another editor changed the same
@@ -29,12 +28,11 @@ type Options = { session: PageSession | null; user: Identity };
  */
 export const CoEditing = Extension.create<Options>({
   name: 'coEditing',
-  addOptions: () => ({ session: null, user: { name: '', color: '#888' } }),
+  addOptions: () => ({ session: null }),
 
   addProseMirrorPlugins() {
-    const { session, user } = this.options;
+    const { session } = this.options;
     if (!session) return [];
-    session.awareness.setLocalStateField('user', user);
     return [
       ySyncPlugin(session.doc.getXmlFragment('body')),
       yCursorPlugin(session.awareness, { cursorBuilder: caret, selectionBuilder: highlight }),

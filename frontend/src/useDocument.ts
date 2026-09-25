@@ -5,12 +5,15 @@ import { preserveSlices, replaceBody, serialize } from './format';
 import { SaveQueue, type SaveState } from './save';
 import { titleHost } from './hosts';
 import { onSiteChange } from './live';
+import type { PageSession } from './collab';
 import type { Doc, Project } from './types';
 
 type Metadata = { title: string; path: string; draft: boolean; template: string; version: string };
+const metadataFields: (keyof Metadata)[] = ['title', 'path', 'draft', 'template', 'version'];
 
 type Options = {
   initial: Doc;
+  session: PageSession;
   editorRef: RefObject<Editor | null>;
   extensions: AnyExtension[];
   setMessage: (message: string) => void;
@@ -18,27 +21,32 @@ type Options = {
   projectRef: MutableRefObject<Project>;
 };
 
+const metadataOf = (page: Doc): Metadata => ({ title: page.title, path: page.path, draft: page.draft, template: page.template, version: page.version ?? '' });
+
 /**
- * The open page: its source as the editor changes it, autosave with local
- * recovery, its frontmatter (title, path, draft, template), and what happens
- * when the file changes on disk — clean documents reload in place,
- * overlapping edits keep both versions for the author to choose.
+ * The open page, edited together with every other editor that has it open
+ * (see PageSession): its body and frontmatter live in the shared document,
+ * and one editor — the page's saver — writes them to disk with autosave and
+ * local recovery. A save rejected because the file changed on disk keeps
+ * both versions for the author to choose.
  */
-export function useDocument({ initial, editorRef, extensions, setMessage, setProject, projectRef }: Options) {
+export function useDocument({ initial, session, editorRef, extensions, setMessage, setProject, projectRef }: Options) {
   const [doc, setDoc] = useState(initial);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [disk, setDisk] = useState<Doc | null>(null);
   const [recovery, setRecovery] = useState<{ source: string; revision: string } | null>(null);
+  const [saver, setSaver] = useState(session.saver);
 
-  const metadata = useRef<Metadata>({ title: initial.title, path: initial.path, draft: initial.draft, template: initial.template, version: initial.version ?? '' });
+  const metadata = useRef<Metadata>(metadataOf(initial));
   const original = useRef(initial.source);
   const queue = useRef<SaveQueue | null>(null);
   const composing = useRef(false);
   const key = `marqraft:${projectRef.current.project}:${initial.id}`;
 
+  // The saver writes the shared document; every other editor leaves it be.
   const changed = useCallback(() => {
-    const current = editorRef.current; if (!current || composing.current) return;
-    try { queue.current?.edit(replaceBody(original.current, serialize(current.getJSON()), metadata.current)); }
+    const current = editorRef.current; if (!current || composing.current || !queue.current) return;
+    try { queue.current.edit(replaceBody(original.current, serialize(current.getJSON()), metadata.current)); }
     catch (error) { setMessage(String(error)); }
   }, []);
 
@@ -48,51 +56,70 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
     end: () => { composing.current = false; queueMicrotask(changed); return false; },
   };
 
-  // Save queue, local recovery and unload protection.
-  useEffect(() => {
-    queue.current = new SaveQueue(initial.source, initial.revision,
+  // Becoming the page's saver. The editor that seeded the page holds it
+  // exactly as saved, so opening a page never rewrites it; one that takes
+  // over later reloads the file and saves what the others changed since.
+  const seededHere = useRef(false);
+  const startSaving = useCallback(async () => {
+    if (queue.current) return;
+    const seeded = seededHere.current;
+    const onDisk = seeded ? initial : await api<Doc>(`document/${initial.id}`);
+    original.current = onDisk.source;
+    queue.current = new SaveQueue(onDisk.source, onDisk.revision,
       async (source, revision) => {
         const result = await api<Doc>('save', { id: initial.id, source, revision });
         setProject(current => ({ ...current, pages: current.pages.map(page => page.id === result.id ? { ...page, ...result } : page) }));
+        session.compact();
         return result;
       },
       (next, error) => { setSaveState(next); if (error) setMessage(error); },
       (source, revision) => { try { localStorage.setItem(key, JSON.stringify({ source, revision })); } catch { setMessage('Browser recovery storage is unavailable. Keep this tab open until saved.'); } },
       () => { try { localStorage.removeItem(key); } catch { /* storage unavailable */ } });
-    try {
-      const saved = JSON.parse(localStorage.getItem(key) ?? 'null');
-      if (saved?.source && saved.source !== initial.source) { setRecovery(saved); queue.current.conflict(); }
-    } catch { /* malformed local recovery does not affect the document */ }
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (queue.current?.dirty || queue.current?.state === 'conflict') { event.preventDefault(); event.returnValue = ''; } };
-    window.addEventListener('beforeunload', beforeUnload);
-    return () => { queue.current?.dispose(); window.removeEventListener('beforeunload', beforeUnload); };
+    if (!seeded) changed();
   }, []);
 
-  // External changes — another browser, another program, or this editor's own
-  // saves, pushed by the server as they happen: reload clean documents, keep
-  // both versions when edits overlap.
+  // The session: seed it if this editor is first, follow the frontmatter
+  // everyone edits, and save when this editor is the saver.
+  useEffect(() => {
+    const applyMeta = () => {
+      const next = { ...metadata.current };
+      for (const field of metadataFields) {
+        const value = session.meta.get(field);
+        if (value !== undefined) (next as Record<string, unknown>)[field] = value;
+      }
+      metadata.current = next;
+      setDoc(d => ({ ...d, ...next }));
+      if (titleHost && document.activeElement !== titleHost && titleHost.textContent !== next.title) titleHost.textContent = next.title;
+      changed();
+    };
+    session.meta.observe(applyMeta);
+    session.on('seed', () => {
+      // A local copy from an interrupted session in this browser can only be
+      // restored while nobody else is editing the page.
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) ?? 'null');
+        if (saved?.source && saved.source !== initial.source) setRecovery(saved);
+      } catch { /* malformed local recovery does not affect the document */ }
+      session.doc.transact(() => { for (const field of metadataFields) session.meta.set(field, metadata.current[field]); });
+      editorRef.current?.commands.setContent(preserveSlices(generateJSON(initial.html, extensions)));
+      session.markSeeded();
+      seededHere.current = true;
+    });
+    session.on('saver', isSaver => { setSaver(isSaver); if (isSaver) void startSaving(); });
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (queue.current?.dirty || queue.current?.state === 'conflict') { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => { session.meta.unobserve(applyMeta); queue.current?.dispose(); window.removeEventListener('beforeunload', beforeUnload); };
+  }, []);
+
+  // Other changes to the site — navigation, other pages, the theme — as the
+  // server announces them. This page's own changes arrive through the session.
   useEffect(() => {
     let stopped = false, running = false;
     const check = async () => {
       if (running) return; running = true;
       try {
         const fresh = await api<Project>('project'); if (stopped) return;
-        const page = fresh.pages.find(p => p.id === initial.id);
         const q = queue.current;
-        if (page && q && page.revision !== q.revision && q.state !== 'saving') {
-          const external = await api<Doc>(`document/${initial.id}`);
-          // Metadata can have been read before a save that finished during this poll.
-          if (external.revision !== q.revision && external.source !== q.source && (q.state as SaveState) !== 'saving') {
-            if (q.dirty || q.state === 'conflict' || editorRef.current?.isFocused) { q.conflict(); setDisk(external); }
-            else {
-              original.current = external.source; q.source = external.source; q.revision = external.revision;
-              metadata.current = { title: external.title, path: external.path, draft: external.draft, template: external.template, version: external.version ?? '' };
-              editorRef.current?.commands.setContent(preserveSlices(generateJSON(external.html, extensions)), { emitUpdate: false });
-              if (titleHost) titleHost.textContent = external.title;
-              setDoc(external);
-            }
-          }
-        }
         if (fresh.themeRevision !== projectRef.current.themeRevision) {
           if (q?.dirty || composing.current || q?.state === 'conflict') setMessage('The theme changed. Your edits are kept; reload after they are saved to apply it.');
           else window.location.reload();
@@ -105,16 +132,15 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
     return () => { stopped = true; stop(); };
   }, []);
 
+  /** Title, path, draft, template or version, for every editor on the page. */
   const applyMetadata = (field: keyof Metadata, value: string | boolean) => {
-    metadata.current = { ...metadata.current, [field]: value };
-    setDoc(d => ({ ...d, [field]: value }));
+    session.meta.set(field, value);
     if (field === 'title' && titleHost && titleHost.textContent !== value) titleHost.textContent = String(value);
-    changed();
     if (field !== 'title') void queue.current?.flush();
   };
 
   /** The title as typed in the theme's own heading. */
-  const editTitle = (title: string) => { metadata.current.title = title; setDoc(d => ({ ...d, title })); changed(); };
+  const editTitle = (title: string) => session.meta.set('title', title);
 
   /** Leaves for another page once everything is saved. */
   const navigate = async (path: string) => {
@@ -143,7 +169,7 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
     download: () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([local], { type: 'text/markdown' })); link.download = 'recovered.md'; link.click(); URL.revokeObjectURL(link.href); },
   };
 
-  return { doc, saveState, changed, composition, applyMetadata, editTitle, navigate, retry, conflict };
+  return { doc, saveState, saver, changed, composition, applyMetadata, editTitle, navigate, retry, conflict, setDisk };
 }
 
 /** The page title is edited in place, inside the theme's own heading. */

@@ -121,3 +121,8 @@ body.marq-previewing:has(#marq-chrome) { padding-top: 48px; }
 .marq-nav-drop-before { box-shadow: inset 0 2px 0 #3b82f6; }
 .marq-nav-drop-after { box-shadow: inset 0 -2px 0 #3b82f6; }
 .marq-nav-drop-inside { outline: 2px solid #3b82f6; outline-offset: -2px; border-radius: 6px; }
+
+/* Other editors' carets and selections (collaboration-caret). */
+.collaboration-carets__caret { position: relative; margin-inline: -1px; border-inline: 1px solid; pointer-events: none; word-break: normal; }
+.collaboration-carets__label { position: absolute; top: -1.4em; left: -1px; padding: 0.1rem 0.3rem; border-radius: 3px 3px 3px 0; color: #fff; font: 600 11px/1.2 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; user-select: none; }
+.collaboration-carets__selection { background-color: rgb(59 130 246 / 0.18); }

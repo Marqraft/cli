@@ -5,7 +5,7 @@ module Marqraft.Pages
 
 using Marqraft.Document, only: [Page]
 using Marqraft.Project, only: [Site, load, page, pageGenerated?, pageId, pagePath, pageTitle]
-using Marqraft.Navigation, only: [findNode, generatedIds, home?, homeId, insertChild, renameNode, renamedId, stripGenerated, subtreeIds]
+using Marqraft.Navigation, only: [NavNode, findNode, generatedIds, home?, homeId, insertChild, renameNode, renamedId, stripGenerated, subtreeIds, saveTree]
 
 foul pageTemplate?(site: Site, template: String) -> Bool do
   return Marqraft.Document.slug?(template) && FS.File.file?(site.root + "/" + site.themeDir + "/${template}.html.ket")
@@ -47,7 +47,7 @@ foul createPage(root: String, title: String, path: String, template: String, par
   let created = Marqraft.Document.parse(source, file).try
   Marqraft.Store.write(root, file, source).try
   # Unlisted pages remain available in the authoring sidebar if navigation persistence fails.
-  let node = { "id": created.id, "children": [] }
+  let node = NavNode { id: created.id, children: [] }
   # Only the authored tree is persisted: a rendered mount's nodes live in
   # site.navigation too, and written back they would name pages
   # .marqraft/navigation.json cannot resolve on the next load.
@@ -59,7 +59,7 @@ foul createPage(root: String, title: String, path: String, template: String, par
   else
     insertChild(authoredTree, parent, node)
   end
-  Marqraft.Store.write(root, ".marqraft/navigation.json", Marqraft.Data.pretty(nav)).try
+  saveTree(root, nav, homeId(site.pages)).try
   return Ok(created)
 end
 
@@ -99,18 +99,18 @@ foul copyCollection(root: String, from: String, to: String, title: String, unlis
   end
   let copiedNode = renameNode(node.try, renamed)
   let authoredTree = stripGenerated(site.navigation, generatedIds(site))
-  let updated = authoredTree.flatMap do |item|
-    let id = Marqraft.Data.text(item, "id", "")
-    if id == sourceId
-      let original = unlist then Marqraft.Data.object(item).or({}).put("listed", false) else item
-      [original, copiedNode]
-    else
-      [item]
-    end
-  end
-  Marqraft.Store.write(root, ".marqraft/navigation.json", Marqraft.Data.pretty(updated)).try
+  saveTree(root, withCopy(authoredTree, sourceId, copiedNode, unlist), homeId(site.pages)).try
   let copied = load(root).try
   return page(copied, renamedId(renamed, sourceId))
+end
+
+# The top level with the copy right after its original, which `unlist`
+# hides from the collections menu.
+let withCopy(nodes: [NavNode], sourceId: String, copy: NavNode, unlist: Bool) -> [NavNode] do
+  return [] if nodes.empty?
+  let node = nodes.first.try
+  let rest = withCopy(nodes.drop(1), sourceId, copy, unlist)
+  return node.id == sourceId then [NavNode { ...node, listed?: !unlist && node.listed? }, copy] + rest else [node] + rest
 end
 
 # (new path, new source) for one page of the copied subtree.

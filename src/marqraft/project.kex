@@ -5,8 +5,8 @@ module Marqraft.Project
 # site lives in Pages, Navigation, Menus and the API.
 
 using Marqraft.Document, only: [Page]
-using Marqraft.Mounts, only: [generatedPages, loadMounts, mountNodes]
-using Marqraft.Navigation, only: [homeId, validateNavigation, withoutPage]
+using Marqraft.Mounts, only: [Mount, generatedPages, loadMounts, mountNodes]
+using Marqraft.Navigation, only: [NavNode, homeId, parseTree, validateNavigation, withoutPage]
 
 record Site do
   root : String
@@ -14,9 +14,9 @@ record Site do
   themeDir : String
   theme : {String: Any}
   pages : [Page]
-  navigation : [Any]
+  navigation : [NavNode]
   menus : {String: Any}
-  mounts : [Any]
+  mounts : [Mount]
 end
 
 foul load(directory: String) -> Site or! String do
@@ -30,7 +30,7 @@ foul load(directory: String) -> Site or! String do
   let theme = manifest.put("blocks", blocks)
   let files = Marqraft.Store.files(root, "content").try.filter { |name| name.endsWith?(".md") }
   let filePages = loadPages(root, files, []).try
-  let navigation = Marqraft.Data.list(Marqraft.Data.read(Marqraft.Store.safePath(root, ".marqraft/navigation.json").try).try).try
+  let navigation = parseTree(Marqraft.Data.read(Marqraft.Store.safePath(root, ".marqraft/navigation.json").try).try).try
   validateNavigation(navigation, filePages, []).try
   let menusFile = Marqraft.Store.safePath(root, ".marqraft/menus.json").try
   let menus = if FS.File.file?(menusFile)
@@ -39,7 +39,7 @@ foul load(directory: String) -> Site or! String do
     Marqraft.Data.object(Marqraft.Data.decode("{}").try).try
   end
   let mounts = loadMounts(root, themeDir, Marqraft.Data.list(config.get("mounts").or([])).try, filePages).try
-  let generated = generatedPages(root, themeDir, mounts, filePages).try
+  let generated = generatedPages(root, mounts, filePages).try
   let pages = filePages + generated
   let tree = withoutPage(navigation, homeId(filePages)) + mountNodes(root, mounts, generated)
   let site = Site { root, config, themeDir, theme, pages, navigation: tree, menus, mounts }

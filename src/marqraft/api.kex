@@ -72,7 +72,7 @@ end
 
 foul perform(root, "navigation", data) do
   let revision = Marqraft.Data.text(data, "revision", "")
-  let navigation = Marqraft.Data.list(data.get("navigation").or([])).try
+  let navigation = Marqraft.Navigation.parseTree(data.get("navigation").or([])).try
   let updated = Marqraft.Navigation.updateNavigation(root, revision, navigation).try
   return Ok({ "revision": updated })
 end
@@ -241,7 +241,7 @@ foul metadata(root: String) -> {String: Any} or! String do
   return Ok({ "project": Digest.sha256(root), "config": site.config, "theme": Marqraft.Blocks.editorTheme(root, site.theme).try,
     "themeName": Marqraft.Data.text(site.config, "theme", site.themeDir),
     "pages": site.pages.filter { |page| !page.generated? }.map { |page| Marqraft.Document.metadata(page) },
-    "navigation": Marqraft.Navigation.stripGenerated(site.navigation, Marqraft.Navigation.generatedIds(site)), "navigationRevision": Digest.sha256(navSource),
+    "navigation": Marqraft.Navigation.encodeTree(Marqraft.Navigation.stripGenerated(site.navigation, Marqraft.Navigation.generatedIds(site))), "navigationRevision": Digest.sha256(navSource),
     "generatedCollections": Marqraft.Navigation.generatedCollections(site),
     "menus": menus, "menusRevision": Digest.sha256(menusSource),
     "uploads": Marqraft.Project.uploadDirectory(site),

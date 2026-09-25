@@ -7,19 +7,47 @@ module Marqraft.Navigation
 using Marqraft.Document, only: [Page]
 using Marqraft.Project, only: [Site, load, pageGenerated?, pageId, pagePath, pageTitle]
 
-# A top-level entry marked "listed": false stays out of collection menus
-# (an older edition after copy-collection --unlist); it is still built and
-# linkable.
-let listed?(node: Any) -> Bool = Marqraft.Data.flag(node, "listed", true)
+# One entry of the tree. A top-level entry with listed? false stays out of
+# collection menus (an older edition after copy-collection --unlist); it is
+# still built and linkable.
+record NavNode do
+  id : String
+  children : [NavNode]
+  listed? : Bool = true
+end
+
+# The tree as stored: [{ "id", "children", "listed" (only when false) }].
+foul parseTree(value: Any) -> [NavNode] or! String do
+  let items = Marqraft.Data.list(value).try
+  return parseNodes(items, [])
+end
+
+foul parseNodes(items: [Any], nodes: [NavNode]) -> [NavNode] or! String do
+  return Ok(nodes) if items.empty?
+  let item = Marqraft.Data.object(items.first.try).try
+  let children = parseTree(item.get("children").or([])).try
+  let node = NavNode { id: Marqraft.Data.text(item, "id", ""), children, listed?: Marqraft.Data.flag(item, "listed", true) }
+  return parseNodes(items.drop(1), nodes + [node])
+end
+
+let encodeTree(nodes: [NavNode]) -> [Any] do
+  return nodes.map do |node|
+    let entry = { "id": node.id, "children": encodeTree(node.children) }
+    let stored: Any = node.listed? then entry else entry.put("listed", false)
+    stored
+  end
+end
+
+let containsPage?(node: NavNode, id: String) -> Bool do
+  return node.id == id || node.children.any? { |child| containsPage?(child, id) }
+end
+
+# The top-level entry (collection) holding a page.
+let collectionOf(nodes: [NavNode], id: String) -> NavNode? = nodes.find { |node| containsPage?(node, id) }
 
 # The top-level entries a menu shows: every listed one, plus an unlisted
 # one while the reader is inside it.
-let visible(nodes: [Any], current: String) -> [Any] do
-  return [] if nodes.empty?
-  let node = nodes.first.or({})
-  let rest = visible(nodes.drop(1), current)
-  return (listed?(node) || Marqraft.Theme.containsPage?(node, current)) then [node] + rest else rest
-end
+let visible(nodes: [NavNode], current: String) -> [NavNode] = nodes.filter { |node| node.listed? || containsPage?(node, current) }
 
 # The page at / is the site's home: the landing page the site title leads
 # to, not a collection. It takes no part in the navigation, so menus, pagers
@@ -35,13 +63,12 @@ let homeId(pages: [Page]) -> String do
   end
 end
 
-let withoutPage(nodes: [Any], id: String) -> [Any] do
+let withoutPage(nodes: [NavNode], id: String) -> [NavNode] do
   return nodes if id.empty?
-  let none: [Any] = []
-  return nodes.reduce(none) do |kept, item|
-    let node = Marqraft.Data.object(item).or({})
-    let children = withoutPage(Marqraft.Theme.childrenOf(item), id)
-    Marqraft.Data.text(node, "id", "") == id then kept + children else kept + [node.put("children", children)]
+  let none: [NavNode] = []
+  return nodes.reduce(none) do |kept, node|
+    let children = withoutPage(node.children, id)
+    node.id == id then kept + children else kept + [NavNode { ...node, children }]
   end
 end
 
@@ -57,7 +84,7 @@ end
 # collections as the published site without writing them into the tree.
 foul generatedCollections(site: Site) -> [Any] do
   let ids = generatedIds(site)
-  let tops = site.navigation.map { |node| Marqraft.Data.text(node, "id", "") }.filter { |id| ids.contains?(id) }
+  let tops = site.navigation.map { |node| node.id }.filter { |id| ids.contains?(id) }
   let found = tops.map { |id| site.pages.find { |item| pageId(item) == id } }.filter { |item| item.set? }
   return found.map do |item|
     let entry: Any = { "id": pageId(item.try), "title": pageTitle(item.try), "path": pagePath(item.try) }
@@ -65,71 +92,60 @@ foul generatedCollections(site: Site) -> [Any] do
   end
 end
 
-foul stripGenerated(nodes: [Any], ids: [String]) -> [Any] do
-  return stripNodes(nodes, ids, [])
+let stripGenerated(nodes: [NavNode], ids: [String]) -> [NavNode] do
+  return nodes.filter { |node| !node.id.empty? && !ids.contains?(node.id) }.map { |node| NavNode { ...node, children: stripGenerated(node.children, ids) } }
 end
 
-let stripNodes(nodes: [Any], ids: [String], kept: [Any]) -> [Any] do
-  return kept if nodes.empty?
-  let node = Marqraft.Data.object(nodes.first.try).or({})
-  let children = Marqraft.Data.list(node.get("children").or([])).or([])
-  if Marqraft.Data.text(node, "id", "") == "" || ids.contains?(Marqraft.Data.text(node, "id", ""))
-    return stripNodes(nodes.drop(1), ids, kept)
-  end
-  return stripNodes(nodes.drop(1), ids, kept + [node.put("children", stripNodes(children, ids, []))])
-end
-
-let validateNavigation(nodes: [Any], pages: [Page], seen: [String]) -> [String] or! String do
+let validateNavigation(nodes: [NavNode], pages: [Page], seen: [String]) -> [String] or! String do
   return Ok(seen) if nodes.empty?
-  let node = Marqraft.Data.object(nodes.first.try).try
-  let id = Marqraft.Data.text(node, "id", "")
+  let node = nodes.first.try
+  let id = node.id
   return Error("navigation has an unknown or repeated page: ${id}") if seen.contains?(id) || !pages.any? { |page| pageId(page) == id }
   return Error("navigation cannot include a generated page: ${id}") if pages.any? { |page| pageId(page) == id && pageGenerated?(page) }
-  let children = Marqraft.Data.list(node.get("children").or([])).try
-  let visited = validateNavigation(children, pages, seen + [id]).try
+  let visited = validateNavigation(node.children, pages, seen + [id]).try
   return validateNavigation(nodes.drop(1), pages, visited)
 end
 
-let findNode(nodes: [Any], id: String) -> Any? do
+let findNode(nodes: [NavNode], id: String) -> NavNode? do
   return None if nodes.empty?
-  let node = nodes.first.or({})
-  return Just(node) if Marqraft.Data.text(node, "id", "") == id
-  match findNode(Marqraft.Theme.childrenOf(node), id) do
+  let node = nodes.first.try
+  return Just(node) if node.id == id
+  match findNode(node.children, id) do
     Just(found) => return Just(found)
     None => return findNode(nodes.drop(1), id)
   end
 end
 
-let subtreeIds(node: Any) -> [String] do
-  let children = Marqraft.Theme.childrenOf(node)
-  return children.reduce([Marqraft.Data.text(node, "id", "")]) do |ids, child|
+let subtreeIds(node: NavNode) -> [String] do
+  return node.children.reduce([node.id]) do |ids, child|
     ids + subtreeIds(child)
   end
 end
 
-let renameNode(node: Any, renamed: [(String, String)]) -> Any do
-  let id = Marqraft.Data.text(node, "id", "")
-  let children = Marqraft.Theme.childrenOf(node).map { |child| renameNode(child, renamed) }
-  let copy: Any = { "id": renamedId(renamed, id), "children": children }
-  return copy
+let renameNode(node: NavNode, renamed: [(String, String)]) -> NavNode do
+  return NavNode { id: renamedId(renamed, node.id), children: node.children.map { |child| renameNode(child, renamed) } }
 end
 
-let insertChild(nodes: [Any], parent: String, child: Any) -> [Any] do
-  return nodes.map do |item|
-    let node = Marqraft.Data.object(item).or({})
-    let children = Marqraft.Data.list(node.get("children").or([])).or([])
-    let updated = Marqraft.Data.text(node, "id", "") == parent then children + [child] else insertChild(children, parent, child)
-    node.put("children", updated)
+let insertChild(nodes: [NavNode], parent: String, child: NavNode) -> [NavNode] do
+  return nodes.map do |node|
+    let children = node.id == parent then node.children + [child] else insertChild(node.children, parent, child)
+    NavNode { ...node, children }
   end
 end
 
-foul updateNavigation(root: String, revision: String, nodes: [Any]) -> String or! String do
+# Writes the authored tree, without the home page.
+foul saveTree(root: String, nodes: [NavNode], home: String) -> String or! String do
+  let source = Marqraft.Data.pretty(encodeTree(withoutPage(nodes, home)))
+  Marqraft.Store.write(root, ".marqraft/navigation.json", source).try
+  return Ok(source)
+end
+
+foul updateNavigation(root: String, revision: String, nodes: [NavNode]) -> String or! String do
   let site = load(root).try
   let file = Marqraft.Store.safePath(root, ".marqraft/navigation.json").try
   return Error("conflict: navigation changed on disk") if Digest.sha256(FS.File.read(file).try) != revision
   validateNavigation(nodes, site.pages, []).try
-  let source = Marqraft.Data.pretty(withoutPage(nodes, homeId(site.pages)))
-  Marqraft.Store.write(root, ".marqraft/navigation.json", source).try
+  let source = saveTree(root, nodes, homeId(site.pages)).try
   return Ok(Digest.sha256(source))
 end
 

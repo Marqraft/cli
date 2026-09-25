@@ -10,10 +10,12 @@ describe "generated mounts" do
     withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}]").try
     let site = Marqraft.Project.load(root).try
     assert(site.mounts.count == 1)
-    let versions = Marqraft.Data.list(Marqraft.Data.object(site.mounts.first.try).or({}).get("versions").or([])).or([])
-    assert(versions.count == 2)
-    assert(Marqraft.Data.text(versions.first.try, "path", "") == "/prelude/0.4/")
-    assert(Marqraft.Data.text(versions.drop(1).first.try, "name", "") == "0.5")
+    let versions = site.mounts.first.try.versions
+    assert(versions.map { |version| version.url } == ["/prelude/0.4/", "/prelude/0.5/"])
+    assert(versions.map { |version| version.name } == ["0.4", "0.5"])
+    # Templates see the same, as context["mounts"].
+    let described = Marqraft.Data.list(Marqraft.Data.object(Marqraft.Mounts.describe(site.mounts.first.try)).try.get("versions").or([])).try
+    assert(Marqraft.Data.text(described.first.try, "path", "") == "/prelude/0.4/")
     assert(FS.File.read(Marqraft.Server.mountedPath(root, "prelude/0.4/index.html").try).try == "prelude 0.4")
     assert(FS.File.read(Marqraft.Server.mountedPath(root, "prelude/0.5/").try).try == "prelude 0.5")
     assert(!Marqraft.Server.mountedPath(root, "prelude/0.4/../../marqraft.jsonc").ok?)

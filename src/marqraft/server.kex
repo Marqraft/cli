@@ -158,27 +158,17 @@ end
 # Mounts are generated output: served verbatim, never edited or bound.
 foul mountedPath(root: String, relative: String) -> String or! String do
   let site = Marqraft.Project.load(root).try
-  let found = site.mounts.find do |mount|
-    let single = Marqraft.Data.text(mount, "file", "")
-    if single != ""
-      relative == Marqraft.Data.text(mount, "path", "").drop(1)
-    else
-      let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
-      relative == prefix.take(prefix.count - 1) || relative.startsWith?(prefix)
-    end
-  end
+  let found = site.mounts.find { |mount| Marqraft.Mounts.serves?(mount, relative) }
   match found do
     None => Error("no mount serves ${relative}")
     Just(mount) => do
-      let single = Marqraft.Data.text(mount, "file", "")
-      if single != ""
-        let singlePath = Marqraft.Store.safePath(root, single).try
+      if !mount.file.empty?
+        let singlePath = Marqraft.Store.safePath(root, mount.file).try
         return Error("mounted file not found") if !FS.File.file?(singlePath)
         return Ok(singlePath)
       end
-      let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
-      let dir = Marqraft.Data.text(mount, "dir", "")
-      let rest = relative.drop(prefix.count)
+      let dir = mount.dir
+      let rest = relative.drop(mount.url.count - 1)
       let file = if rest == "" || rest.endsWith?("/")
         rest + "index.html"
       else

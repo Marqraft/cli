@@ -16,10 +16,10 @@ describe "copy-collection" do
     assert(copiedChapter.id != chapter.id)
     assert(copiedChapter.body.contains?("[the start](/guide/v2/)"))
     # The original is still there, unlisted; the copy follows it.
-    let ids = site.navigation.map { |node| Marqraft.Data.text(node, "id", "") }
+    let ids = site.navigation.map { |node| node.id }
     assert(ids.contains?(book.id) && ids.contains?(copy.id))
-    let original = site.navigation.find { |node| Marqraft.Data.text(node, "id", "") == book.id }.try
-    assert(!Marqraft.Navigation.listed?(original))
+    let original = site.navigation.find { |node| node.id == book.id }.try
+    assert(!original.listed?)
     let home = site.pages.find { |page| page.path == "/" }.try
     assert(!Marqraft.Theme.collectionsHtml(site, home.id, true).contains?("/guide/v1/"))
     assert(Marqraft.Theme.collectionsHtml(site, home.id, true).contains?("/guide/v2/"))

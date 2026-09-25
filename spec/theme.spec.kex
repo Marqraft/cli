@@ -26,8 +26,7 @@ describe "theme selection" do
     let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
     let child = Marqraft.Pages.createPage(root, "Variables", "/tutorial/variables/", "page", tutorial.id).try
     let reloaded = Marqraft.Project.load(root).try
-    let nested = Marqraft.Data.list(Marqraft.Data.object(reloaded.navigation.last.try).try.get("children").or([])).try
-    assert(Marqraft.Data.text(nested.first.try, "id", "") == child.id)
+    assert(reloaded.navigation.last.try.children.first.try.id == child.id)
     assert(FS.File.read(root + "/content/tutorial/variables/index.md").try.contains?("## Overview"))
     let page = reloaded.pages.find { |item| item.id == tutorial.id }.try
     assert(!Marqraft.Theme.render(reloaded, page, false).try.contains?("/tutorial/variables/"))

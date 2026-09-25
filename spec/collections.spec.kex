@@ -72,10 +72,10 @@ describe "collections" do
     let legacyTutorial: Any = { "id": tutorial.id, "children": [] }
     assert(FS.File.write(navFile, Marqraft.Data.pretty([legacyHome, legacyTutorial])))
     let legacy = Marqraft.Project.load(root).try
-    assert(legacy.navigation.map { |node| Marqraft.Data.text(node, "id", "") } == [old.id, tutorial.id])
+    assert(legacy.navigation.map { |node| node.id } == [old.id, tutorial.id])
     # ...and navigation.json drops the entry on its next save.
     let revision = Digest.sha256(FS.File.read(navFile).try)
-    Marqraft.Navigation.updateNavigation(root, revision, [legacyHome, legacyTutorial]).try
+    Marqraft.Navigation.updateNavigation(root, revision, Marqraft.Navigation.parseTree([legacyHome, legacyTutorial]).try).try
     assert(!FS.File.read(navFile).try.contains?(home.id))
     assert(FS.File.read(navFile).try.contains?(old.id))
   end

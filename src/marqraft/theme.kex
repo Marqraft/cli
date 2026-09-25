@@ -208,12 +208,15 @@ end
 
 foul compiler -> String = ENV.get("TEY_KEX").or("kex")
 
-# The context travels as an Erlang term: decoding it is immediate, where
-# parsing JSON in Kex dominated render time for pages with large CSS.
-let runnerSource(path: String) -> String do
-  return "using FS\nusing Template\nmain(args) do\n  let context = BEAM.erlang.binary_to_term(BEAM.base64.decode(FS.File.read(args.first.try).try))\n  let render = Template.html(Kex.embed(" + JSON.stringify(path) + "))\n  IO.print(render(context))\nend\n"
-end
+# A template compiles once into a module of its own (named by its digest)
+# that marq loads into its own VM, so a render is a function call. Running
+# each render as a `kex --run` process spent ~140 ms starting a VM.
+let templateModule(digest: String) -> String = "MarqraftTemplate${digest}"
+let templateFile(digest: String) -> String = "marqraft_template_${digest}"
 
+let templateSource(path: String, digest: String) -> String do
+  return "module ${templateModule(digest)}\n\nusing Template\n\nlet render(context: {String: Any}) -> String = Template.html(Kex.embed(" + JSON.stringify(path) + "))(context)\n"
+end
 # Theme CSS reads settings as --marq-<name> custom properties; values are
 # validated against the theme's settings schema before they reach CSS.
 foul stylesheet(site: Site, settings: {String: Any}) -> String do
@@ -396,28 +399,35 @@ end
 
 foul template(root: String, relative: String, context: {String: Any}) -> String or! String do
   let source = Marqraft.Store.safePath(root, relative).try
-  let template = FS.File.read(source).try
-  let digest = Digest.sha256(template)
-  let directory = ".marqraft/cache/renderer-v3-${digest}"
-  # The template path was validated above; the cache path is derived from a digest.
+  let digest = Digest.sha256(FS.File.read(source).try).take(24)
+  let renderer = BEAM.erlang.binary_to_atom("Kex.${templateModule(digest)}")
+  loadTemplate(root, source, digest, renderer).try
+  # Through rpc so an exception in the template comes back as a value
+  # instead of taking the caller down.
+  let rendered = BEAM.rpc.call(BEAM.erlang.node(), renderer, :render, [context])
+  return Error("theme render failed: ${rendered}") if Type.of(rendered).name != "String"
+  return Ok(rendered)
+end
+
+# Compiles the template on first use (the digest keys the cache, so an
+# edited template is a new module) and loads it into this VM.
+foul loadTemplate(root: String, source: String, digest: String, renderer: Any) -> Void or! String do
+  return Ok(()) if Type.of(BEAM.code.is_loaded(renderer)).name == "Tuple"
+  let directory = ".marqraft/cache/templates-v1/${digest}"
   let cache = root + "/" + directory
-  let beam = cache + "/kex_main.beam"
-  if !FS.File.file?(beam)
-    let runner = runnerSource(source)
-    Marqraft.Store.write(root, directory + "/main.kex", runner).try
-    let compilation = Process.run(compiler, ["--compile", "-o", cache, cache + "/main.kex"], 60000).try
+  let file = templateFile(digest)
+  if !FS.File.file?(cache + "/Kex.${templateModule(digest)}.beam")
+    Marqraft.Store.write(root, "${directory}/${file}.kex", templateSource(source, digest)).try
+    let compilation = Process.run(compiler, ["--compile", "-o", cache, "${cache}/${file}.kex"], 60000).try
     # With this block ending in the conditional return, the first render
     # returned None instead of a Result; keep a statement after the check.
     let failed = compilation.exitCode != 0
     return Error("theme compilation failed: ${compilation.stderr}") if failed
     let _ = failed
   end
-  let input = directory + "/input-${Marqraft.Store.identifier}.term"
-  # FS writes Kex Binary values, not raw terms, so the term is base64 text.
-  return Error("cannot write template input") if !FS.File.write(root + "/" + input, BEAM.base64.encode(BEAM.erlang.term_to_binary(context)))
-  let result = Process.run(compiler, ["--run", beam, "--", root + "/" + input], 15000)
-  let _ = FS.File.delete(root + "/" + input)
-  let rendered = result.try
-  return Error("theme render failed: ${rendered.stderr}") if rendered.exitCode != 0
-  return Ok(rendered.stdout)
+  # The template's body lives in the file's module, render in the named one.
+  let body = BEAM.code.load_abs(BEAM.erlang.binary_to_list("${cache}/kex_${file}"))
+  let named = BEAM.code.load_abs(BEAM.erlang.binary_to_list("${cache}/Kex.${templateModule(digest)}"))
+  return Error("cannot load compiled theme template ${source}: ${body} ${named}") if BEAM.erlang.element(1, named) != BEAM.erlang.binary_to_atom("module")
+  return Ok(())
 end

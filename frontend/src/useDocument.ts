@@ -44,8 +44,10 @@ export function useDocument({ initial, session, editorRef, extensions, setMessag
   const key = `marqraft:${projectRef.current.project}:${initial.id}`;
 
   // The saver writes the shared document; every other editor leaves it be.
+  // Nothing is written while the document takes on the file as it is on disk.
+  const fromDisk = useRef(false);
   const changed = useCallback(() => {
-    const current = editorRef.current; if (!current || composing.current || !queue.current) return;
+    const current = editorRef.current; if (!current || composing.current || !queue.current || fromDisk.current) return;
     try { queue.current.edit(replaceBody(original.current, serialize(current.getJSON()), metadata.current)); }
     catch (error) { setMessage(String(error)); }
   }, []);
@@ -111,15 +113,38 @@ export function useDocument({ initial, session, editorRef, extensions, setMessag
     return () => { session.meta.unobserve(applyMeta); queue.current?.dispose(); window.removeEventListener('beforeunload', beforeUnload); };
   }, []);
 
-  // Other changes to the site — navigation, other pages, the theme — as the
-  // server announces them. This page's own changes arrive through the session.
+  // Changes to the site as the server announces them: navigation, other
+  // pages, the theme, and this page's file changed on disk by something other
+  // than the session — another program, or a regenerated file. The saver, who
+  // knows what it last wrote, deals with the latter: a session with nothing
+  // unsaved takes on the file, for every editor on the page; one with unsaved
+  // changes keeps both versions for the author to choose.
   useEffect(() => {
     let stopped = false, running = false;
+    const takeOnDisk = (external: Doc) => {
+      const q = queue.current!;
+      fromDisk.current = true;
+      try {
+        original.current = external.source; q.source = external.source; q.revision = external.revision;
+        session.doc.transact(() => { for (const field of metadataFields) session.meta.set(field, metadataOf(external)[field]); });
+        editorRef.current?.commands.setContent(preserveSlices(generateJSON(external.html, extensions)), { emitUpdate: false });
+      } finally { fromDisk.current = false; }
+      setDoc(external);
+    };
     const check = async () => {
       if (running) return; running = true;
       try {
         const fresh = await api<Project>('project'); if (stopped) return;
         const q = queue.current;
+        const page = fresh.pages.find(p => p.id === initial.id);
+        if (session.saver && page && q && page.revision !== q.revision && q.state !== 'saving') {
+          const external = await api<Doc>(`document/${initial.id}`);
+          // Metadata can have been read before a save that finished during this poll.
+          if (external.revision !== q.revision && external.source !== q.source && (q.state as SaveState) !== 'saving') {
+            if (q.dirty || q.state === 'conflict') { q.conflict(); setDisk(external); }
+            else takeOnDisk(external);
+          }
+        }
         if (fresh.themeRevision !== projectRef.current.themeRevision) {
           if (q?.dirty || composing.current || q?.state === 'conflict') setMessage('The theme changed. Your edits are kept; reload after they are saved to apply it.');
           else window.location.reload();

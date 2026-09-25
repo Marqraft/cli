@@ -12,28 +12,122 @@ module Marqraft.Live
 # WebSocket.
 
 using Marqraft.Project, only: [Site]
-using Net.HTTP.WebSocket, only: [Connection, Text]
+using Net.HTTP.WebSocket, only: [Connection, Message, Text, BinaryMessage, CloseMessage]
 
-# Open editors, by connection id. A connection whose send fails is dropped.
-record Listeners do
+# Every open editor, and the pages being edited together.
+#
+# Several editors can edit one page at once: each keeps a Yjs document, and
+# the hub only relays and keeps the updates they send, as opaque bytes — Yjs
+# updates merge in any order, so the server never needs to understand them.
+# Frames from an editor start with a kind byte:
+#
+#   0  a document update: kept for the page and passed to its other editors
+#   1  cursors and names (Yjs awareness): passed on, never kept
+#   2  the page's whole document, compacted by its saver: replaces the kept
+#      updates
+#
+# The first editor on a page seeds the document from the page as saved, and
+# one editor per page (the saver) writes it to disk; when the saver leaves,
+# another editor on the page takes over. A page nobody edits any more is
+# forgotten: its saver saved it.
+record Hub do
+  # Connection id -> socket, for every open editor.
   sockets : {String: Connection} = {}
+  # Connection id -> the page it edits, once it joined one.
+  pages : {String: String} = {}
+  # Page id -> the frames that make up its document, in arrival order.
+  logs : {String: [Binary]} = {}
+  # Page id -> the connection that saves it.
+  savers : {String: String} = {}
 end
 
-serving Listeners do
-  slot join(id: String, socket: Connection) -> Void do
+serving Hub do
+  slot connect(id: String, socket: Connection) -> Void do
     new.sockets = @sockets.put(id, socket)
     return new
   end
 
-  slot leave(id: String) -> Void do
-    new.sockets = @sockets.delete(id)
+  # An editor opens a page. The first one seeds the shared document and saves
+  # it; a later one is sent what the document holds so far.
+  foul slot enter(id: String, page: String) -> Void do
+    let seed = !@pages.values.contains?(page)
+    new.pages = @pages.put(id, page)
+    new.logs = seed then @logs.put(page, []) else @logs
+    new.savers = seed then @savers.put(page, id) else @savers
+    let saver = new.savers.get(page).or("") == id
+    match @sockets.get(id) do
+      Just(socket) => do
+        let _ = deliver(socket, Text("{\"type\":\"joined\",\"seed\":${seed},\"saver\":${saver}}"))
+        new.logs.get(page).or([]).each { |frame| deliver(socket, BinaryMessage(frame)) }
+      end
+      None => Void
+    end
     return new
   end
 
-  slot broadcast(text: String) -> Void do
-    new.sockets = @sockets.filter { |_, socket| socket.send(Text(text)).ok? }
+  foul slot relay(id: String, frame: Binary) -> Void do
+    let page = @pages.get(id).or("")
+    let kind = frame.take(1).hex
+    if !page.empty? && kind == "02" && @savers.get(page).or("") == id
+      new.logs = @logs.put(page, [frame])
+    elif !page.empty? && (kind == "00" || kind == "01")
+      new.logs = kind == "00" then @logs.put(page, @logs.get(page).or([]) + [frame]) else @logs
+      let others = @pages.filter { |editor, edited| edited == page && editor != id }.keys
+      others.each { |other| @sockets.get(other).map { |socket| deliver(socket, BinaryMessage(frame)) } }
+    end
     return new
   end
+
+  # An editor closes its page or disconnects: the page's saver role passes
+  # to an editor still on it.
+  foul slot disconnect(id: String) -> Void do
+    let page = @pages.get(id).or("")
+    new.sockets = @sockets.delete(id)
+    new.pages = @pages.delete(id)
+    let others = new.pages.filter { |_, edited| edited == page }.keys
+    if !page.empty? && others.empty?
+      new.logs = @logs.delete(page)
+      new.savers = @savers.delete(page)
+    elif !page.empty? && @savers.get(page).or("") == id
+      let successor = others.first.or("")
+      new.savers = @savers.put(page, successor)
+      new.sockets.get(successor).map { |socket| deliver(socket, Text("{\"type\":\"saver\"}")) }
+    end
+    return new
+  end
+
+  foul slot broadcast(text: String) -> Void do
+    new.sockets = @sockets.filter { |_, socket| deliver(socket, Text(text)) }
+    return new
+  end
+end
+
+# Sends one message to an editor, true when it went out. Connection.send only
+# type-checks with an inline Text(...): given any other Message — a
+# BinaryMessage, or a value typed Message — Kex's checker resolves it to
+# another `send`. The intrinsic it wraps is unambiguous.
+foul deliver(socket: Connection, message: Message) -> Bool = Kex.Intrinsic.NetWebSocket.send(socket, message).ok?
+
+# One editor's connection, for as long as it stays open: it may join a page
+# ({"type": "join", "page": id}) and send document and cursor frames.
+foul serveEditor(hub: Server<Hub>, socket: Connection) -> Void do
+  let id = Marqraft.Store.identifier
+  hub.connect(id, socket)
+  loop do
+    match socket.receiveMessage do
+      Ok(Text(text)) => do
+        let message = Marqraft.Data.object(Marqraft.Data.decode(text).or({})).or({})
+        if Marqraft.Data.text(message, "type", "") == "join"
+          hub.enter(id, Marqraft.Data.text(message, "page", ""))
+        end
+      end
+      Ok(BinaryMessage(frame)) => hub.relay(id, frame)
+      Ok(CloseMessage(_, _)) => break
+      Ok(_) => Void
+      Error(_) => break
+    end
+  end
+  hub.disconnect(id)
 end
 
 let siteKey(root: String) -> Any = ("marqraft_site", root)

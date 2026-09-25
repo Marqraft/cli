@@ -7,8 +7,6 @@ import StarterKit from '@tiptap/starter-kit';
 import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extensions';
-import Collaboration from '@tiptap/extension-collaboration';
-import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import { X } from 'lucide-react';
 import { MarqAlert, MarqCode, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
 import { KexHighlight } from './highlight';
@@ -21,6 +19,7 @@ import { useProject } from './useProject';
 import { useDocument, useTitleEditing } from './useDocument';
 import { useSlashMenu } from './useSlashMenu';
 import { PageSession } from './collab';
+import { CoEditing } from './collaboration';
 import { identity } from './identity';
 import type { Doc, Project } from './types';
 import { EditorToolbar } from './components/EditorToolbar';
@@ -57,8 +56,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   const extensions = useMemo(() => [
     // Undo comes with collaboration: each editor undoes only its own changes.
     StarterKit.configure({ link: { openOnClick: false }, trailingNode: false, undoRedo: false }),
-    Collaboration.configure({ document: session.doc, field: 'body' }),
-    CollaborationCaret.configure({ provider: { awareness: session.awareness }, user }),
+    CoEditing.configure({ session, user }),
     // Markdown images are inline: as a block node, an image inside a rendered <p> was split
     // out on parse, leaving an empty paragraph that still saved the image's source.
     TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,

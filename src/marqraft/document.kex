@@ -21,6 +21,9 @@ record Page do
   # and the producer's own JSON for the template (`context["page"]`).
   html : String = ""
   data : String = "{}"
+  # The version this page documents ("version:" in its frontmatter), such
+  # as a guide edition; empty when the page does not say.
+  version : String = ""
 end
 
 foul parse(source: String, file: String) -> Page or! String do
@@ -35,13 +38,15 @@ foul parse(source: String, file: String) -> Page or! String do
   let path = fields.get("path").or("")
   let template = fields.get("template").or("page")
   let draft = fields.get("draft").or("")
+  let version = fields.get("version").or("")
   return Error("${file}: id and title are required") if id.empty? || title.trim.empty?
   return Error("${file}: invalid id") if !slug?(id)
   return Error("${file}: path must be / or a slash-terminated URL with safe segments") if !urlPath?(path)
   return Error("${file}: draft must be true or false") if draft != "true" && draft != "false"
   return Error("${file}: invalid template name") if !slug?(template)
+  return Error("${file}: version must be a single line") if version.contains?("\n") || version.count > 100
   return Ok(Page {
-    file, id, title, description, path, template, draft?: draft == "true",
+    file, id, title, description, path, template, draft?: draft == "true", version,
     body: lines.drop(front.count + 2).join("\n"),
     source, revision: Digest.sha256(source), generated?: false
   })
@@ -57,7 +62,7 @@ foul fieldsOf(lines: [String], fields: {String: String}) -> {String: String} or!
   # Unknown YAML remains in the original frontmatter; required fields use scalars.
   return fieldsOf(lines.drop(1), fields) if at < 1
   let key = line.take(at).trim
-  return fieldsOf(lines.drop(1), fields) if !["id", "title", "description", "path", "draft", "template"].contains?(key)
+  return fieldsOf(lines.drop(1), fields) if !["id", "title", "description", "path", "draft", "template", "version"].contains?(key)
   return Error("duplicate frontmatter key: ${key}") if fields.get(key).set?
   let raw = line.drop(at + 1).trim
   let value = if raw.startsWith?("\"")
@@ -100,7 +105,7 @@ end
 
 let metadata(page: Page) -> {String: Any} do
   return { "id": page.id, "title": page.title, "description": page.description, "path": page.path,
-    "draft": page.draft?, "template": page.template, "file": page.file,
+    "draft": page.draft?, "template": page.template, "version": page.version, "file": page.file,
     "revision": page.revision, "generated": page.generated? }
 end
 

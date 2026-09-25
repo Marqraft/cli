@@ -91,6 +91,12 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     Just(item) => pathOf(item)
     None => "/"
   end
+  # A page documents its own version if it names one, else its collection's.
+  let collectionVersion = match collectionPage do
+    Just(item) => pageVersion(item)
+    None => ""
+  end
+  let version = pageVersion(page).empty? then collectionVersion else pageVersion(page)
   let collections = collectionsHtml(site, page.id, authoring?)
   let members = navigation(site, collectionNodes.flatMap { |node| node.children }, authoring?, page.id)
   let menus = menuContext(site, page, Marqraft.Menus.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
@@ -104,6 +110,8 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "navigation:collection": authoring? then "<div data-marq-navigation data-marq-scope=\"collection\" data-marq-collection=\"${Marqraft.Content.escape(collectionId)}\">${members}</div>" else members,
     "collectionId": collectionId, "collectionTitle": collectionTitle, "collectionPath": collectionPath,
     "isHome": Marqraft.Navigation.home?(page),
+    "version": version,
+    "versions": versionsHtml(site, page, version),
     "searchIndex": Marqraft.Search.indexPath(site),
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
@@ -127,7 +135,7 @@ let bindings(html: String, context: {String: Any}, authoring?: Bool) -> String o
   let element = Marqraft.Content.element("<marqraft-" + parts.drop(1).join("<marqraft-")).try
   let replacement = if element.name == "marqraft-content"
     let source = element.attributes.get("source").or("")
-    return Error("unknown content binding: ${source}") if !["body", "title", "navigation", "pager", "menu"].contains?(source)
+    return Error("unknown content binding: ${source}") if !["body", "title", "navigation", "pager", "menu", "versions"].contains?(source)
     let scope = element.attributes.get("scope").or("")
     let key = if source == "menu"
       "menu:" + element.attributes.get("menu").or("")
@@ -260,8 +268,31 @@ end
 
 # Typed accessors: without them the checker can resolve .path on an inferred
 # match binding to an unrelated record with the same field name.
+# The version a page documents, and on a generated page with other versions
+# beside it a switcher: each option opens the same page in that version,
+# or the version's index where the page does not exist. It is plain HTML,
+# so it works on a static site.
+foul versionsHtml(site: Site, page: Page, version: String) -> String do
+  return "" if version.empty?
+  let plain = "<span class=\"marq-version\">${Marqraft.Content.escape(version)}</span>"
+  let mount = site.mounts.find { |item| page.generated? && !item.dir.empty? && pageFileOf(page).startsWith?(item.dir + "/") }
+  return plain if !mount.set? || mount.try.versions.count < 2
+  let current = mount.try.versions.find { |item| item.name == version }
+  return plain if !current.set?
+  let rest = pathOf(page).drop(current.try.url.count)
+  let options = mount.try.versions.map do |item|
+    let same = item.url + rest
+    let target = site.pages.any? { |other| pathOf(other) == same } then same else item.url
+    let selected = item.name == version then " selected" else ""
+    "<option value=\"${Marqraft.Content.escape(target)}\"${selected}>${Marqraft.Content.escape(item.name)}</option>"
+  end.join("")
+  return "<select class=\"marq-versions\" aria-label=\"Version\" onchange=\"location.href=this.value\">${options}</select>"
+end
+
 let titleOf(page: Page) -> String = page.title
 let pathOf(page: Page) -> String = page.path
+let pageFileOf(page: Page) -> String = page.file
+let pageVersion(page: Page) -> String = page.version
 
 # The top-level navigation entries: one link per collection. The collection
 # holding the current page is marked aria-current="true", the page itself "page".

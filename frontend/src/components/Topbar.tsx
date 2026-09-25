@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 type Props = {
   project: Project; doc: Doc; state: SaveState; mode: 'edit' | 'preview';
   setMode: (mode: 'edit' | 'preview') => void; retry: () => void; openTheme: () => void;
-  applyMetadata: (field: 'title' | 'path' | 'template' | 'draft', value: string | boolean) => void;
+  applyMetadata: (field: 'title' | 'path' | 'template' | 'draft' | 'version', value: string | boolean) => void;
 };
 
 function Status({ state, retry }: { state: SaveState; retry: () => void }) {
@@ -62,6 +62,9 @@ export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, a
               <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-path">URL path</Label>
                 <Input id="marq-page-path" aria-invalid={Boolean(pathError)} className="mq:font-mono" value={path} onChange={event => setPath(event.target.value)} onBlur={commitPath} onKeyDown={event => { if (event.key === 'Enter') commitPath(); }} />
                 <p className={pathError ? 'mq:text-xs mq:text-destructive' : 'mq:text-xs mq:text-muted-foreground'}>{pathError || 'Renaming or moving a page never changes its URL.'}</p></div>
+              <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-version">Version</Label>
+                <Input id="marq-page-version" className="mq:font-mono" placeholder="None" value={doc.version ?? ''} onChange={event => applyMetadata('version', event.target.value.trim())} />
+                <p className="mq:text-xs mq:text-muted-foreground">Shown by themes that display a version. Pages without one use their collection's.</p></div>
               {project.theme.pageTemplates.length > 1 && <div className="mq:flex mq:flex-col mq:gap-1.5"><Label>Template</Label>
                 <Select value={doc.template} onValueChange={value => applyMetadata('template', value)}>
                   <SelectTrigger aria-label="Template"><SelectValue /></SelectTrigger>

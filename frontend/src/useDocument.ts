@@ -6,7 +6,7 @@ import { SaveQueue, type SaveState } from './save';
 import { titleHost } from './hosts';
 import type { Doc, Project } from './types';
 
-type Metadata = { title: string; path: string; draft: boolean; template: string };
+type Metadata = { title: string; path: string; draft: boolean; template: string; version: string };
 
 type Options = {
   initial: Doc;
@@ -29,7 +29,7 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
   const [disk, setDisk] = useState<Doc | null>(null);
   const [recovery, setRecovery] = useState<{ source: string; revision: string } | null>(null);
 
-  const metadata = useRef<Metadata>({ title: initial.title, path: initial.path, draft: initial.draft, template: initial.template });
+  const metadata = useRef<Metadata>({ title: initial.title, path: initial.path, draft: initial.draft, template: initial.template, version: initial.version ?? '' });
   const original = useRef(initial.source);
   const queue = useRef<SaveQueue | null>(null);
   const composing = useRef(false);
@@ -83,7 +83,7 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
             if (q.dirty || q.state === 'conflict' || editorRef.current?.isFocused) { q.conflict(); setDisk(external); }
             else {
               original.current = external.source; q.source = external.source; q.revision = external.revision;
-              metadata.current = { title: external.title, path: external.path, draft: external.draft, template: external.template };
+              metadata.current = { title: external.title, path: external.path, draft: external.draft, template: external.template, version: external.version ?? '' };
               editorRef.current?.commands.setContent(preserveSlices(generateJSON(external.html, extensions)), { emitUpdate: false });
               if (titleHost) titleHost.textContent = external.title;
               setDoc(external);

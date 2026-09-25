@@ -52,6 +52,7 @@ params: [context: {String: Any}]
 | `description` | page frontmatter `description`, or empty               |
 | `collectionTitle`, `collectionPath`, `collectionId` | the top-level navigation entry holding this page, or empty |
 | `isHome`     | true on the home page (the page at `/`) |
+| `version`    | the version the page documents: its frontmatter `version`, else its collection's; a generated page's is its mount version directory; empty when none |
 | `searchIndex` | the URL of the site's search index (`"search"` in `marqraft.jsonc`), or empty |
 | `path`      | page URL path, such as `/guide/intro/`                   |
 | `settings`  | map of every declared setting: stored value or default (`context["settings"].try["label"].or("")`) |
@@ -105,6 +106,11 @@ the current collection in its sidebar binds both scopes:
 In `marq dev`, the collections region adds new collections, and the
 collection region adds pages inside the current collection. Themes without
 scopes show the whole tree.
+
+A collection says which version it documents with `version:` in its page's
+frontmatter (the Version field in Page settings); its pages inherit it
+unless they name their own, and templates read it as `version`, for a
+version badge or a title.
 
 The home page, the page at `/`, is not a collection: it is the landing page
 the site title links to, and it never appears in the navigation, so no menu,

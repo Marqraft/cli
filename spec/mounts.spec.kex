@@ -88,7 +88,10 @@ describe "generated mounts" do
     let index = Marqraft.Project.page(site, "mount-prelude-0-4").try
     assert(index.path == "/prelude/0.4/")
     assert(index.body.contains?("[Algebra](/prelude/0.4/algebra/)"))
+    # Generated pages belong to the version directory they sit in.
+    assert(algebra.version == "0.4" && index.version == "0.4")
     let landing = Marqraft.Project.page(site, "mount-prelude").try
+    assert(landing.version == "")
     assert(landing.path == "/prelude/")
     assert(landing.body.contains?("[0.4](/prelude/0.4/)"))
     assert(!Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "prelude/0.4/algebra.md").ok?)

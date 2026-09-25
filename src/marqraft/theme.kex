@@ -91,6 +91,12 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     Just(item) => pathOf(item)
     None => "/"
   end
+  # A page documents its own version if it names one, else its collection's.
+  let collectionVersion = match collectionPage do
+    Just(item) => pageVersion(item)
+    None => ""
+  end
+  let version = pageVersion(page).empty? then collectionVersion else pageVersion(page)
   let collections = collectionsHtml(site, page.id, authoring?)
   let members = navigation(site, collectionNodes.flatMap { |node| node.children }, authoring?, page.id)
   let menus = menuContext(site, page, Marqraft.Menus.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
@@ -104,6 +110,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "navigation:collection": authoring? then "<div data-marq-navigation data-marq-scope=\"collection\" data-marq-collection=\"${Marqraft.Content.escape(collectionId)}\">${members}</div>" else members,
     "collectionId": collectionId, "collectionTitle": collectionTitle, "collectionPath": collectionPath,
     "isHome": Marqraft.Navigation.home?(page),
+    "version": version,
     "searchIndex": Marqraft.Search.indexPath(site),
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
@@ -262,6 +269,7 @@ end
 # match binding to an unrelated record with the same field name.
 let titleOf(page: Page) -> String = page.title
 let pathOf(page: Page) -> String = page.path
+let pageVersion(page: Page) -> String = page.version
 
 # The top-level navigation entries: one link per collection. The collection
 # holding the current page is marked aria-current="true", the page itself "page".

@@ -49,6 +49,9 @@ export function CollectionNav({ project, currentId, saveNavigation, createPage, 
           </li>
         );
       })}
+      {(project.generatedCollections ?? []).map(collection => (
+        <li key={collection.id}><a href={collection.path}>{collection.title}</a></li>
+      ))}
       <li className="marq-ui marq-authoring-only mq:flex mq:items-center">
         <Popover open={adding} onOpenChange={setAdding}>
           <PopoverTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="New collection"><Plus /></Button></PopoverTrigger>

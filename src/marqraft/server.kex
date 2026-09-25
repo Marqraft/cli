@@ -56,6 +56,8 @@ foul start(directory: String, port: Integer) -> Void or! String do
         let path = env.param("path").or("")
         if path.startsWith?("_theme/")
           Marqraft.Server.themeAsset(root, path.drop(7))
+        elif Marqraft.Server.searchPath?(root, path)
+          Marqraft.Server.searchIndex(root)
         elif Marqraft.Server.publicFile?(root, path)
           asset(root, path)
         elif Marqraft.Server.mountedPath(root, path).ok?
@@ -110,8 +112,25 @@ foul renderPage(root: String, path: String, token: String) -> Rodolfo.Response.R
   let page = found.try
   # Generated pages render view-only: no editing bindings ever attach to them.
   let html = Marqraft.Theme.render(site, page, !page.generated?).try
-  let author = "<meta name=\"marq-token\" content=\"${token}\"><meta name=\"marq-page\" content=\"${Marqraft.Content.escape(page.id)}\"><link rel=\"stylesheet\" href=\"/__marqraft/editor.css\"><div id=\"marq-chrome\"></div><script src=\"/__marqraft/editor.js\" defer></script>"
+  let generated = page.generated? then "<meta name=\"marq-generated\" content=\"${Marqraft.Content.escape(page.title)}\">" else ""
+  let author = "<meta name=\"marq-token\" content=\"${token}\"><meta name=\"marq-page\" content=\"${Marqraft.Content.escape(page.id)}\">${generated}<link rel=\"stylesheet\" href=\"/__marqraft/editor.css\"><div id=\"marq-chrome\"></div><script src=\"/__marqraft/editor.js\" defer></script>"
   return Response.HTML { body: html.replace("</body>", author + "</body>"), headers: noCache }
+rescue |error|
+  return Response.Text { status: 500, body: "${error}", headers: noCache }
+end
+
+# The site's search index (marqraft.jsonc "search"), built on each request
+# so it follows every edit.
+foul searchPath?(root: String, relative: String) -> Bool do
+  match Marqraft.Project.load(root) do
+    Ok(site) => Marqraft.Search.indexPath(site) == "/" + relative
+    Error(_) => false
+  end
+end
+
+foul searchIndex(root: String) -> Rodolfo.Response.Reply do
+  let site = Marqraft.Project.load(root).try
+  return jsonReply(200, Marqraft.Search.index(site).try)
 rescue |error|
   return Response.Text { status: 500, body: "${error}", headers: noCache }
 end

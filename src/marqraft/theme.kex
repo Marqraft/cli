@@ -102,6 +102,8 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "navigation:collections": authoring? then "<div data-marq-navigation data-marq-scope=\"collections\">${collections}</div>" else collections,
     "navigation:collection": authoring? then "<div data-marq-navigation data-marq-scope=\"collection\" data-marq-collection=\"${Marqraft.Content.escape(collectionId)}\">${members}</div>" else members,
     "collectionId": collectionId, "collectionTitle": collectionTitle, "collectionPath": collectionPath,
+    "isHome": Marqraft.Project.home?(page),
+    "searchIndex": Marqraft.Search.indexPath(site),
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
     "css": stylesheet(site, settings), "authoring": authoring?,

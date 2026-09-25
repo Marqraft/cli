@@ -9,6 +9,7 @@ import Image from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extensions';
 import { X } from 'lucide-react';
 import { MarqAlert, MarqCode, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
+import { KexHighlight } from './highlight';
 import { replaceBody, serialize, preserveSlices } from './format';
 import { SaveQueue, type SaveState } from './save';
 import { themeNodes } from './theme-nodes';
@@ -21,7 +22,7 @@ import { SlashMenu, type SlashState } from './components/SlashMenu';
 import { NavigationTree } from './components/NavigationTree';
 import { MenuEditor } from './components/MenuEditor';
 import { CollectionNav } from './components/CollectionNav';
-import { Topbar } from './components/Topbar';
+import { ReadOnlyBar, Topbar } from './components/Topbar';
 import { ThemeSheet } from './components/ThemeSheet';
 import { ConflictDialog } from './components/ConflictDialog';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -47,7 +48,10 @@ const titleHost = document.querySelector<HTMLElement>('[data-marq-title]');
 // current collection in a sidebar, a contents list. The first region of each
 // scope is editable; later regions of the same scope keep their rendered links.
 const navigationHosts = [...document.querySelectorAll<HTMLElement>('[data-marq-navigation]')]
-  .filter((host, index, all) => all.findIndex(other => (other.dataset.marqScope ?? '') === (host.dataset.marqScope ?? '')) === index);
+  .filter((host, index, all) => all.findIndex(other => (other.dataset.marqScope ?? '') === (host.dataset.marqScope ?? '')) === index)
+  // A page outside every collection, such as the home page, has no collection
+  // to edit: its region stays as rendered (empty) rather than showing the whole tree.
+  .filter(host => host.dataset.marqScope !== 'collection' || Boolean(host.dataset.marqCollection));
 const menuHosts = [...document.querySelectorAll<HTMLElement>('[data-marq-menu]')];
 
 /** A host for the toolbar, placed in the theme's content column above the title. */
@@ -93,7 +97,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     StarterKit.configure({ link: { openOnClick: false }, trailingNode: false }),
     // Markdown images are inline: as a block node, an image inside a rendered <p> was split
     // out on parse, leaving an empty paragraph that still saved the image's source.
-    TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices,
+    TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,
     Placeholder.configure({ placeholder: 'Write something, or type / for blocks' }),
     ...themeNodes(initialProject.theme.blocks),
   ], []);
@@ -323,7 +327,16 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   </TooltipProvider>;
 }
 
+// A generated page (a mount's output) is rendered, never edited: it gets the
+// bar and nothing else, instead of failing to load a document it has none of.
+const generatedTitle = document.querySelector<HTMLMetaElement>('meta[name="marq-generated"]')?.content;
+
 async function main() {
+  if (generatedTitle !== undefined) {
+    const project = await api<Project>('project');
+    createRoot(document.getElementById('marq-chrome')!).render(<ReadOnlyBar project={project} title={generatedTitle} />);
+    return;
+  }
   const [project, doc] = await Promise.all([api<Project>('project'), api<Doc>(`document/${pageID}`)]);
   if (!bodyHost) throw new Error('The theme has no editable body region (<marqraft-content source="body">).');
   // Apply preview before the first render, so a previewing author never sees edit chrome flash.
@@ -336,5 +349,5 @@ async function main() {
 
 void main().catch(error => {
   const root = document.getElementById('marq-chrome');
-  if (root) root.innerHTML = `<div class="marq-ui" role="alert" style="position:fixed;top:0;inset-inline:0;padding:12px 16px;background:#fef2f2;color:#991b1b;font:13px system-ui;z-index:2147483647">Authoring could not start: ${String(error.message).replace(/[<&>]/g, c => `&#${c.charCodeAt(0)};`)}</div>`;
+  if (root) root.innerHTML = `<div class="marq-ui" role="alert" style="position:fixed;top:0;inset-inline:0;height:48px;box-sizing:border-box;display:flex;align-items:center;padding:0 16px;background:#fef2f2;color:#991b1b;font:13px system-ui;z-index:2147483647">Authoring could not start: ${String(error.message).replace(/[<&>]/g, c => `&#${c.charCodeAt(0)};`)}</div>`;
 });

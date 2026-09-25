@@ -23,7 +23,8 @@ foul create(directory: String, theme: String) -> Void or! String do
     "marqraft.jsonc": Marqraft.Data.pretty({ "title": title, "theme": reference, "settings": settings }),
     "content/index.md": published(Marqraft.Document.create(home, "Introduction", "/", "page", Kex.embed("../../themes/welcome.md"))),
     "content/tutorial/index.md": published(Marqraft.Document.create(tutorial, "Getting started", "/tutorial/", "page", Kex.embed("../../themes/tutorial.md"))),
-    ".marqraft/navigation.json": Marqraft.Data.pretty([{ "id": home, "children": [] }, { "id": tutorial, "children": [] }]),
+    # The home page at / is not a collection, so only the tutorial is listed.
+    ".marqraft/navigation.json": Marqraft.Data.pretty([{ "id": tutorial, "children": [] }]),
     "public/images/.gitkeep": "",
     ".gitignore": "dist/\n.marqraft/cache/\n*.marq-*\n",
     "README.md": "# ${title}\n\nRun `marq dev` to author locally and `marq build` to generate dist/.\n\nContent lives in content/, uploads in public/, and page order in .marqraft/navigation.json. The theme is set by \"theme\" in marqraft.jsonc: a built-in name, a directory in this project, or a path to a theme kept elsewhere.\n"

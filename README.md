@@ -44,7 +44,7 @@ Run `marq` through `escript` if your shell does not find the right Erlang:
 marqraft.jsonc            title, theme selection, theme setting values
 content/**/index.md       one page per file: frontmatter + Markdown + custom blocks
 public/                   static files and uploads (images/ by default), copied to dist/
-.marqraft/navigation.json page order and nesting, by page id
+.marqraft/navigation.json collections, page order and nesting, by page id (not the home page at /)
 .marqraft/templates/*.md  optional starter bodies that override the theme's
 .marqraft/cache/          ignored: compiled templates, materialized themes, builds
 themes/<name>/            only after eject-theme, or for a hand-written theme

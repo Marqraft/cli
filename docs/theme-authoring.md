@@ -51,6 +51,8 @@ params: [context: {String: Any}]
 | `title`     | page title (text; escape with `<%= %>`)                  |
 | `description` | page frontmatter `description`, or empty               |
 | `collectionTitle`, `collectionPath`, `collectionId` | the top-level navigation entry holding this page, or empty |
+| `isHome`     | true on the home page (the page at `/`) |
+| `searchIndex` | the URL of the site's search index (`"search"` in `marqraft.jsonc`), or empty |
 | `path`      | page URL path, such as `/guide/intro/`                   |
 | `settings`  | map of every declared setting: stored value or default (`context["settings"].try["label"].or("")`) |
 | `siteTitle` | site title                                               |
@@ -104,6 +106,14 @@ In `marq dev`, the collections region adds new collections, and the
 collection region adds pages inside the current collection. Themes without
 scopes show the whole tree.
 
+The home page, the page at `/`, is not a collection: it is the landing page
+the site title links to, and it never appears in the navigation, so no menu,
+pager or collection region lists it. Its collection context is empty and
+`isHome` is true, so a landing template can leave the sidebar out. A site
+whose `.marqraft/navigation.json` still lists it has the entry ignored,
+anything nested under it moved into its place, and the file follows on its
+next save.
+
 A top-level entry with `"listed": false` in `.marqraft/navigation.json` is
 built and linkable but left out of `scope="collections"` and the whole-tree
 navigation, except while the reader is inside it. `marq copy-collection
@@ -114,6 +124,19 @@ in dev and nothing in builds.
 
 A page whose template does not exist in the current theme renders with
 `page.html.ket`, so every theme must provide it.
+
+### Search index
+
+With `"search": "/search.json"` in `marqraft.jsonc`, Marqraft serves (in
+`marq dev`) and writes (in `marq build`) a search index of the published
+authored pages: one entry per page and one per `h2`/`h3` section, as
+`{ "entries": [{ "kind": "page" | "section", "name", "qualifiedName",
+"summary", "text", "url" }] }`. `qualifiedName` is the page's collection for
+a page and the page's title for a section; `url` is the page path, with the
+heading's anchor for a section. The shape follows Tey docgen's
+`search.json`, so a theme can search the site and a generated reference with
+one script. Generated pages are left to their producer's own index. The
+path must be a file path that no page, upload or mount uses.
 
 ### Generated mounts
 

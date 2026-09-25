@@ -16,25 +16,68 @@ describe "collections" do
     let root = "${FS.Directory.temporary}/marqraft-collections-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     let site = Marqraft.Project.load(root).try
-    let intro = site.pages.find { |page| page.path == "/" }.try
     let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
-    let overview = Marqraft.Project.createPage(root, "Overview", "/overview/", "page", intro.id).try
+    let guide = Marqraft.Project.createPage(root, "Guide", "/guide/", "page", "").try
+    Marqraft.Project.setDraft(root, guide.id, false).try
+    let overview = Marqraft.Project.createPage(root, "Overview", "/guide/overview/", "page", guide.id).try
     let steps = Marqraft.Project.createPage(root, "First steps", "/tutorial/first-steps/", "page", tutorial.id).try
     Marqraft.Project.save(root, overview.id, overview.revision, overview.source.replace("draft: true", "draft: false")).try
     Marqraft.Project.save(root, steps.id, steps.revision, steps.source.replace("draft: true", "draft: false")).try
     let loaded = Marqraft.Project.load(root).try
     let page = loaded.pages.find { |item| item.id == overview.id }.try
     let html = Marqraft.Theme.render(loaded, page, false).try
-    assert(html.contains?("<div class=\"collections\"><ul><li><a href=\"/\" aria-current=\"true\">Introduction</a></li><li><a href=\"/tutorial/\">Getting started</a></li></ul></div>"))
-    assert(html.contains?("<p class=\"collection\">Introduction /</p>"))
-    assert(html.contains?("<div class=\"members\"><ul><li><a href=\"/overview/\" aria-current=\"page\">Overview</a></li></ul></div>"))
-    assert(html.contains?("rel=\"prev\" href=\"/\""))
+    assert(html.contains?("<div class=\"collections\"><ul><li><a href=\"/tutorial/\">Getting started</a></li><li><a href=\"/guide/\" aria-current=\"true\">Guide</a></li></ul></div>"))
+    assert(html.contains?("<p class=\"collection\">Guide /guide/</p>"))
+    assert(html.contains?("<div class=\"members\"><ul><li><a href=\"/guide/overview/\" aria-current=\"page\">Overview</a></li></ul></div>"))
+    assert(html.contains?("rel=\"prev\" href=\"/guide/\""))
     assert(!html.contains?("rel=\"next\""))
     let stepPage = loaded.pages.find { |item| item.id == steps.id }.try
     let tutorialHtml = Marqraft.Theme.render(loaded, stepPage, true).try
     assert(tutorialHtml.contains?("data-marq-scope=\"collection\" data-marq-collection=\"${tutorial.id}\"><ul><li><a href=\"/tutorial/first-steps/\" aria-current=\"page\">First steps</a></li></ul>"))
     assert(tutorialHtml.contains?("<a href=\"/tutorial/\" aria-current=\"true\">Getting started</a>"))
     assert(!Marqraft.Theme.bindings("<marqraft-content source=\"navigation\" scope=\"bogus\"></marqraft-content>", { "navigation": "" }, false).ok?)
+  end
+  it "keeps the home page out of the navigation" do
+    let external = "${FS.Directory.temporary}/marqraft-home-theme-${Marqraft.Store.identifier}/home-theme"
+    Marqraft.Builtin.files("basic").entries.each do |entry|
+      let (path, source) = entry
+      let text = if path == "page.html.ket"
+        source.replace("<marqraft-content source=\"navigation\"></marqraft-content>", "<div class=\"collections\"><marqraft-content source=\"navigation\" scope=\"collections\"></marqraft-content></div><p class=\"home\"><%= context[\"isHome\"].or(false) %></p><div class=\"members\"><marqraft-content source=\"navigation\" scope=\"collection\"></marqraft-content></div>")
+      else
+        source
+      end
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.File.write(external + "/" + path, text))
+    end
+    let root = "${FS.Directory.temporary}/marqraft-home-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, external).try
+    let navFile = root + "/.marqraft/navigation.json"
+    let site = Marqraft.Project.load(root).try
+    let home = site.pages.find { |page| page.path == "/" }.try
+    let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
+    assert(!FS.File.read(navFile).try.contains?(home.id))
+    let html = Marqraft.Theme.render(site, home, false).try
+    assert(html.contains?("<div class=\"collections\"><ul><li><a href=\"/tutorial/\">Getting started</a></li></ul></div>"))
+    assert(html.contains?("<p class=\"home\">true</p>"))
+    assert(html.contains?("<div class=\"members\"></div>"))
+    assert(!html.contains?("rel=\"next\"") && !html.contains?("rel=\"prev\""))
+    assert(Marqraft.Theme.render(site, tutorial, false).try.contains?("<p class=\"home\">false</p>"))
+    # The home page takes no subpages and is no collection to copy.
+    assert(!Marqraft.Project.createPage(root, "Child", "/child/", "page", home.id).ok?)
+    assert(!Marqraft.Project.copyCollection(root, "/", "/v2/", "", false).ok?)
+    # A site that listed it as a collection keeps what was nested under it, in its place.
+    let old = Marqraft.Project.createPage(root, "Old", "/old/", "page", "").try
+    let nested: Any = { "id": old.id, "children": [] }
+    let legacyHome: Any = { "id": home.id, "children": [nested] }
+    let legacyTutorial: Any = { "id": tutorial.id, "children": [] }
+    assert(FS.File.write(navFile, Marqraft.Data.pretty([legacyHome, legacyTutorial])))
+    let legacy = Marqraft.Project.load(root).try
+    assert(legacy.navigation.map { |node| Marqraft.Data.text(node, "id", "") } == [old.id, tutorial.id])
+    # ...and navigation.json drops the entry on its next save.
+    let revision = Digest.sha256(FS.File.read(navFile).try)
+    Marqraft.Project.updateNavigation(root, revision, [legacyHome, legacyTutorial]).try
+    assert(!FS.File.read(navFile).try.contains?(home.id))
+    assert(FS.File.read(navFile).try.contains?(old.id))
   end
   it "publishes and unpublishes a page from its draft line only" do
     let root = "${FS.Directory.temporary}/marqraft-publish-${Marqraft.Store.identifier}"

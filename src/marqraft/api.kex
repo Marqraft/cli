@@ -38,6 +38,14 @@ foul perform(root, "block", data) do
   return blockPreview(root, data)
 end
 
+# Kex code highlighted exactly as a published page renders it, for the
+# editor to show as decorations over the plain text it edits.
+foul perform(root, "highlight", data) do
+  let code = Marqraft.Data.text(data, "code", "")
+  return Error("code is too long to highlight") if code.count > 200000
+  return Ok({ "html": Markdown.Highlight.highlight(code) })
+end
+
 foul perform(root, "save", data) do
   let id = Marqraft.Data.text(data, "id", "")
   let revision = Marqraft.Data.text(data, "revision", "")
@@ -234,6 +242,7 @@ foul metadata(root: String) -> {String: Any} or! String do
     "themeName": Marqraft.Data.text(site.config, "theme", site.themeDir),
     "pages": site.pages.filter { |page| !page.generated? }.map { |page| Marqraft.Document.metadata(page) },
     "navigation": Marqraft.Project.stripGenerated(site.navigation, Marqraft.Project.generatedIds(site)), "navigationRevision": Digest.sha256(navSource),
+    "generatedCollections": Marqraft.Project.generatedCollections(site),
     "menus": menus, "menusRevision": Digest.sha256(menusSource),
     "uploads": Marqraft.Project.uploadDirectory(site),
     "settingsRevision": Digest.sha256(configSource), "themeRevision": Digest.sha256(fingerprint) })

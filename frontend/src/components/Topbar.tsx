@@ -85,3 +85,19 @@ export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, a
     </header>
   );
 }
+
+/** The bar over a generated page: the same frame as the editor's, with nothing to edit. */
+export function ReadOnlyBar({ project, title }: { project: Project; title: string }) {
+  return (
+    <header className="marq-ui mq:fixed mq:inset-x-0 mq:top-0 mq:z-[2147482500] mq:flex mq:h-12 mq:items-center mq:gap-2 mq:border-b mq:border-border mq:bg-background/95 mq:px-3 mq:backdrop-blur">
+      <img src={marqraftIcon} alt="Marqraft" width={30} height={30} className="mq:mr-0.5 mq:size-[30px] mq:shrink-0 mq:rounded-[7px]" />
+      <span className="mq:hidden mq:max-w-40 mq:truncate mq:text-sm mq:font-medium mq:md:inline">{project.config.title}</span>
+      <span className="mq:hidden mq:text-muted-foreground mq:md:inline">/</span>
+      <span className="mq:flex mq:min-w-0 mq:items-center mq:gap-2">
+        <FileText className="mq:size-4 mq:shrink-0 mq:text-muted-foreground" />
+        <span className="mq:truncate mq:text-sm">{title || 'Untitled'}</span>
+        <Badge variant="secondary">Generated · read-only</Badge>
+      </span>
+    </header>
+  );
+}

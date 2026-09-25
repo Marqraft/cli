@@ -8,11 +8,16 @@ describe "theme selection" do
     let site = Marqraft.Project.load(root).try
     assert(site.themeDir.startsWith?(".marqraft/cache/themes/book-"))
     let home = site.pages.find { |page| page.path == "/" }.try
-    let html = Marqraft.Theme.render(site, home, false).try
-    assert(html.contains?("aria-current=\"page\""))
-    assert(html.contains?("rel=\"next\" href=\"/tutorial/\""))
-    assert(html.contains?("--marq-accent:#b52a35;"))
-    assert(!html.contains?("marqraft-content"))
+    let homeHtml = Marqraft.Theme.render(site, home, false).try
+    assert(homeHtml.contains?("--marq-accent:#b52a35;"))
+    assert(!homeHtml.contains?("marqraft-content"))
+    let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
+    let steps = Marqraft.Project.createPage(root, "First steps", "/tutorial/first-steps/", "page", tutorial.id).try
+    Marqraft.Project.setDraft(root, steps.id, false).try
+    let html = Marqraft.Theme.render(Marqraft.Project.load(root).try, tutorial, false).try
+    assert(html.contains?("<a href=\"/tutorial/\" aria-current=\"page\">"))
+    assert(html.contains?("rel=\"next\" href=\"/tutorial/first-steps/\""))
+    assert(!html.contains?("rel=\"prev\""))
   end
   it "nests new pages under a parent and keeps drafts out of the published pager" do
     let root = "${FS.Directory.temporary}/marqraft-nest-${Marqraft.Store.identifier}"

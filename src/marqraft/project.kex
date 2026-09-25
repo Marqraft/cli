@@ -35,9 +35,10 @@ foul load(directory: String) -> Site or! String do
   let mounts = loadMounts(root, themeDir, Marqraft.Data.list(config.get("mounts").or([])).try, filePages).try
   let generated = generatedPages(root, themeDir, mounts, filePages).try
   let pages = filePages + generated
-  let tree = navigation + mountNodes(root, mounts, generated)
+  let tree = withoutPage(navigation, homeId(filePages)) + mountNodes(root, mounts, generated)
   let site = Site { root, config, themeDir, theme, pages, navigation: tree, menus, mounts }
   return Error("uploads.images must be a folder inside public/, such as images or assets/images") if !uploadDirectory?(uploadDirectory(site))
+  Marqraft.Search.validate(site).try
   return Ok(site)
 end
 
@@ -310,6 +311,30 @@ let visible(nodes: [Any], current: String) -> [Any] do
   return (listed?(node) || Marqraft.Theme.containsPage?(node, current)) then [node] + rest else rest
 end
 
+# The page at / is the site's home: the landing page the site title leads
+# to, not a collection. It takes no part in the navigation, so menus, pagers
+# and the authoring tree leave it out. A site that still lists it has the
+# entry dropped on load, anything nested under it promoted into its place,
+# and navigation.json follows on its next save.
+let home?(page: Page) -> Bool = page.path == "/" && !page.generated?
+
+let homeId(pages: [Page]) -> String do
+  match pages.find { |page| home?(page) } do
+    Just(page) => pageId(page)
+    None => ""
+  end
+end
+
+let withoutPage(nodes: [Any], id: String) -> [Any] do
+  return nodes if id.empty?
+  let none: [Any] = []
+  return nodes.reduce(none) do |kept, item|
+    let node = Marqraft.Data.object(item).or({})
+    let children = withoutPage(Marqraft.Theme.childrenOf(item), id)
+    Marqraft.Data.text(node, "id", "") == id then kept + children else kept + [node.put("children", children)]
+  end
+end
+
 let pageId(page: Page) -> String = page.id
 let pagePath(page: Page) -> String = page.path
 let pageFile(page: Page) -> String = page.file
@@ -321,6 +346,19 @@ let pageGenerated?(page: Page) -> Bool = page.generated?
 # down to the file tree the editor persists.
 foul generatedIds(site: Site) -> [String] do
   return site.pages.filter { |page| pageGenerated?(page) }.map { |page| pageId(page) }
+end
+
+# The rendered mounts' collections, for the authoring header: read-only
+# links after the authored collections, so the editor shows the same
+# collections as the published site without writing them into the tree.
+foul generatedCollections(site: Site) -> [Any] do
+  let ids = generatedIds(site)
+  let tops = site.navigation.map { |node| Marqraft.Data.text(node, "id", "") }.filter { |id| ids.contains?(id) }
+  let found = tops.map { |id| site.pages.find { |item| pageId(item) == id } }.filter { |item| item.set? }
+  return found.map do |item|
+    let entry: Any = { "id": pageId(item.try), "title": pageTitle(item.try), "path": pagePath(item.try) }
+    entry
+  end
 end
 
 foul stripGenerated(nodes: [Any], ids: [String]) -> [Any] do
@@ -612,6 +650,8 @@ foul createPage(root: String, title: String, path: String, template: String, par
   return Error("unknown page template: ${template}") if !pageTemplate?(site, template)
   return Error("unknown parent page") if parent != "" && !site.pages.any? { |item| pageId(item) == parent }
   return Error("cannot nest a page under a generated page") if parent != "" && site.pages.any? { |item| pageId(item) == parent && pageGenerated?(item) }
+  return Error("the home page has no subpages: add pages to a collection") if parent != "" && parent == homeId(site.pages)
+  return Error("the home page is not inside a collection") if path == "/" && parent != ""
   # A site-level starter overrides the theme's, so switching themes keeps it.
   let override = FS.File.read(Marqraft.Store.safePath(root, ".marqraft/templates/${template}.md").try)
   let starter = FS.File.read(Marqraft.Store.safePath(root, site.themeDir + "/starters/${template}.md").try)
@@ -628,7 +668,13 @@ foul createPage(root: String, title: String, path: String, template: String, par
   # site.navigation too, and written back they would name pages
   # .marqraft/navigation.json cannot resolve on the next load.
   let authoredTree = stripGenerated(site.navigation, generatedIds(site))
-  let nav = parent == "" then authoredTree + [node] else insertChild(authoredTree, parent, node)
+  let nav = if home?(created)
+    authoredTree
+  elif parent == ""
+    authoredTree + [node]
+  else
+    insertChild(authoredTree, parent, node)
+  end
   Marqraft.Store.write(root, ".marqraft/navigation.json", Marqraft.Data.pretty(nav)).try
   return Ok(created)
 end
@@ -642,6 +688,7 @@ end
 foul copyCollection(root: String, from: String, to: String, title: String, unlist: Bool) -> Page or! String do
   let site = load(root).try
   return Error("invalid URL path: ${to}") if !Marqraft.Document.urlPath?(to)
+  return Error("the home page is not a collection") if from == "/" || to == "/"
   return Error("${to} is inside ${from}") if to.startsWith?(from)
   let source = site.pages.find { |item| item.path == from && !item.generated? }
   return Error("no page at ${from}") if !source.set?
@@ -722,7 +769,9 @@ end
 
 let subtreeIds(node: Any) -> [String] do
   let children = Marqraft.Theme.childrenOf(node)
-  return [Marqraft.Data.text(node, "id", "")] + children.flatMap { |child| subtreeIds(child) }
+  return children.reduce([Marqraft.Data.text(node, "id", "")]) do |ids, child|
+    ids + subtreeIds(child)
+  end
 end
 
 let renameNode(node: Any, renamed: [(String, String)]) -> Any do
@@ -746,7 +795,7 @@ foul updateNavigation(root: String, revision: String, nodes: [Any]) -> String or
   let file = Marqraft.Store.safePath(root, ".marqraft/navigation.json").try
   return Error("conflict: navigation changed on disk") if Digest.sha256(FS.File.read(file).try) != revision
   validateNavigation(nodes, site.pages, []).try
-  let source = Marqraft.Data.pretty(nodes)
+  let source = Marqraft.Data.pretty(withoutPage(nodes, homeId(site.pages)))
   Marqraft.Store.write(root, ".marqraft/navigation.json", source).try
   return Ok(Digest.sha256(source))
 end

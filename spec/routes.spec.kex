@@ -1,0 +1,29 @@
+using Marqraft.Project
+
+describe "routes" do
+  it "finds what a request serves, in the same order the build writes it" do
+    let root = "${FS.Directory.temporary}/marqraft-routes-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "public/images/logo.png", "png").try
+    let site = Marqraft.Project.load(root).try
+    let home = Marqraft.Routes.find(site, "").try
+    assert(home.kind == "page" && home.dest == "index.html")
+    assert(Marqraft.Routes.find(site, "tutorial/").try.dest == "tutorial/index.html")
+    let upload = Marqraft.Routes.find(site, "images/logo.png").try
+    assert(upload.kind == "file" && upload.source == "public/images/logo.png")
+    assert(Marqraft.Routes.find(site, "_theme/style.css").set? == FS.File.file?(root + "/" + site.themeDir + "/assets/style.css"))
+    assert(!Marqraft.Routes.find(site, "missing/").set?)
+    let dests = Marqraft.Routes.all(site).try.map { |output| output.dest }
+    assert(dests.contains?("index.html") && dests.contains?("tutorial/index.html") && dests.contains?("images/logo.png"))
+  end
+  it "rejects outputs that would land on each other or on reserved paths" do
+    let root = "${FS.Directory.temporary}/marqraft-routes-clash-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "public/tutorial/index.html", "shadow").try
+    let clash = Marqraft.Routes.all(Marqraft.Project.load(root).try)
+    assert(!clash.ok?)
+    assert(FS.File.delete(root + "/public/tutorial/index.html"))
+    Marqraft.Store.write(root, "public/_theme/icon.png", "png").try
+    assert(!Marqraft.Routes.all(Marqraft.Project.load(root).try).ok?)
+  end
+end

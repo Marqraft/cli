@@ -1,0 +1,131 @@
+module Marqraft.Routes
+
+# Everything a site serves, by where it lands in dist/: rendered pages,
+# uploads (public/), the theme's assets (/_theme/), the search index, and
+# mounted generated files. `marq build` writes every one of them and
+# rejects collisions; `marq dev` finds the one a request asks for, in the
+# same order: theme asset, search index, upload, mounted file, page.
+
+using Marqraft.Document, only: [Page]
+using Marqraft.Project, only: [Site, pageId, pageOutput, pagePath]
+using Marqraft.Mounts, only: [Mount, rawHidden?, serves?]
+
+record SiteOutput do
+  # Where it lands, relative to the site root as in dist/: "guide/intro/index.html".
+  dest : String
+  # "page" (rendered), "file" (copied from `source`), or "search" (the index).
+  kind : String
+  pageId : String = ""
+  # The project file a "file" output is copied from.
+  source : String = ""
+  # What it is, for collision errors: "page", "upload", "mounted file"...
+  label : String = ""
+end
+
+# Every output of a build: published pages, then uploads, the search index,
+# theme assets and mounts. Nothing may land where something else already
+# does, and uploads cannot use the authoring or theme prefixes.
+foul all(site: Site) -> [SiteOutput] or! String do
+  let pages = site.pages.filter { |page| !page.draft? }.map { |page| SiteOutput { dest: pageOutput(page), kind: "page", pageId: pageId(page), label: "generated page" } }
+  let uploads = uploadsOf(site).try
+  reservedUpload(uploads).try
+  let search = searchOf(site)
+  let theme = themeAssetsOf(site).try
+  let mounted = mountedOf(site, site.mounts, []).try
+  let outputs = pages + uploads + search + theme + mounted
+  unique(outputs, []).try
+  return Ok(outputs)
+end
+
+# The output a dev-server request path (without its leading /) resolves to.
+foul find(site: Site, relative: String) -> SiteOutput? do
+  if relative.startsWith?("_theme/")
+    let source = site.themeDir + "/assets/" + relative.drop(7)
+    return fileIn(site, source) then Just(SiteOutput { dest: relative, kind: "file", source, label: "theme asset" }) else None
+  end
+  let index = Marqraft.Search.indexPath(site)
+  return Just(SiteOutput { dest: relative, kind: "search", label: "search index" }) if !index.empty? && index == "/" + relative
+  if !relative.empty? && !relative.endsWith?("/") && fileIn(site, "public/" + relative)
+    return Just(SiteOutput { dest: relative, kind: "file", source: "public/" + relative, label: "upload" })
+  end
+  match mountedFile(site, relative) do
+    Ok(source) => return Just(SiteOutput { dest: relative, kind: "file", source, label: "mounted file" })
+    Error(_) => do
+      let url = "/" + relative
+      match site.pages.find { |page| pagePath(page) == url } do
+        Just(page) => return Just(SiteOutput { dest: pageOutput(page), kind: "page", pageId: pageId(page), label: "page" })
+        None => return None
+      end
+    end
+  end
+end
+
+# The project file behind a request path inside a mount: a file mount's
+# file, or a file in a directory mount (an index.html for a directory).
+# Sources a rendered mount turns into pages are not served.
+foul mountedFile(site: Site, relative: String) -> String or! String do
+  match site.mounts.find { |mount| serves?(mount, relative) } do
+    None => Error("no mount serves ${relative}")
+    Just(mount) => do
+      return existing(site, mount.file) if !mount.file.empty?
+      let rest = relative.drop(mount.url.count - 1)
+      let file = mount.dir + "/" + (rest == "" || rest.endsWith?("/") then rest + "index.html" else rest)
+      return Error("generated source is rendered, not served") if rawHidden?(site, mount, file)
+      return existing(site, file)
+    end
+  end
+end
+
+foul existing(site: Site, relative: String) -> String or! String do
+  let path = Marqraft.Store.safePath(site.root, relative).try
+  return Error("not found: ${relative}") if !FS.File.file?(path)
+  return Ok(relative)
+end
+
+foul fileIn(site: Site, relative: String) -> Bool = existing(site, relative).ok?
+
+foul uploadsOf(site: Site) -> [SiteOutput] or! String do
+  let files = Marqraft.Store.files(site.root, "public").try.filter { |file| !file.endsWith?(".gitkeep") }
+  return Ok(files.map { |file| SiteOutput { dest: file.drop(7), kind: "file", source: file, label: "upload" } })
+end
+
+let reservedUpload(uploads: [SiteOutput]) -> Void or! String do
+  let reserved = uploads.find { |upload| upload.dest.startsWith?("__marqraft/") || upload.dest.startsWith?("_theme/") }
+  return reserved.set? then Error("upload uses a reserved path: ${reserved.try.dest}") else Ok(())
+end
+
+let searchOf(site: Site) -> [SiteOutput] do
+  let index = Marqraft.Search.indexPath(site)
+  return index.empty? then [] else [SiteOutput { dest: index.drop(1), kind: "search", label: "search index" }]
+end
+
+foul themeAssetsOf(site: Site) -> [SiteOutput] or! String do
+  let prefix = site.themeDir + "/assets/"
+  let files = Marqraft.Store.files(site.root, site.themeDir + "/assets").try
+  return Ok(files.map { |file| SiteOutput { dest: "_theme/" + file.drop(prefix.count), kind: "file", source: file, label: "theme asset" } })
+end
+
+# A file mount publishes its file at its URL; a directory mount publishes
+# every visible file under its prefix, except the sources its pages were
+# rendered from.
+foul mountedOf(site: Site, mounts: [Mount], outputs: [SiteOutput]) -> [SiteOutput] or! String do
+  return Ok(outputs) if mounts.empty?
+  let mount = mounts.first.try
+  if !mount.file.empty?
+    return mountedOf(site, mounts.drop(1), outputs + [SiteOutput { dest: mount.url.drop(1), kind: "file", source: mount.file, label: "mounted file" }])
+  end
+  let prefix = mount.url.drop(1)
+  let visible = Marqraft.Store.files(site.root, mount.dir).try.filter { |file| !file.drop(mount.dir.count + 1).split("/").any? { |part| part.startsWith?(".") || part == ".gitkeep" } }
+  let served = visible.filter { |file| !rawHidden?(site, mount, file) }
+  let files = served.map { |file| SiteOutput { dest: prefix + file.drop(mount.dir.count + 1), kind: "file", source: file, label: "mounted file" } }
+  return mountedOf(site, mounts.drop(1), outputs + files)
+end
+
+let unique(outputs: [SiteOutput], seen: [SiteOutput]) -> Void or! String do
+  return Ok(()) if outputs.empty?
+  let output = outputs.first.try
+  match seen.find { |other| other.dest == output.dest } do
+    Just(other) => Error("${output.label} collides with ${other.label}: ${output.dest}")
+    None => unique(outputs.drop(1), seen + [output])
+  end
+end

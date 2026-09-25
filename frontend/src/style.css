@@ -126,3 +126,8 @@ body.marq-previewing:has(#marq-chrome) { padding-top: 48px; }
 .collaboration-carets__caret { position: relative; margin-inline: -1px; border-inline: 1px solid; pointer-events: none; word-break: normal; }
 .collaboration-carets__label { position: absolute; top: -1.4em; left: -1px; padding: 0.1rem 0.3rem; border-radius: 3px 3px 3px 0; color: #fff; font: 600 11px/1.2 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; user-select: none; }
 .collaboration-carets__selection { background-color: rgb(59 130 246 / 0.18); }
+
+/* The editor keeps each table cell's text in a paragraph, where published
+   tables have bare cells: without this, a theme's paragraph spacing made
+   every row taller in the editor than on the page. */
+.marq-document :is(td, th) > p { margin-block: 0; }

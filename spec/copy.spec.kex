@@ -4,10 +4,10 @@ describe "copy-collection" do
   it "copies a collection to a new path with fresh ids, links and navigation" do
     let root = "${FS.Directory.temporary}/marqraft-copy-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try
-    let book = Marqraft.Project.createPage(root, "Guide 1", "/guide/v1/", "landing", "").try
-    let chapter = Marqraft.Project.createPage(root, "Syntax", "/guide/v1/syntax/", "page", book.id).try
-    Marqraft.Project.save(root, chapter.id, chapter.revision, chapter.source + "\nSee [the start](/guide/v1/).\n").try
-    let copy = Marqraft.Project.copyCollection(root, "/guide/v1/", "/guide/v2/", "Guide 2", true).try
+    let book = Marqraft.Pages.createPage(root, "Guide 1", "/guide/v1/", "landing", "").try
+    let chapter = Marqraft.Pages.createPage(root, "Syntax", "/guide/v1/syntax/", "page", book.id).try
+    Marqraft.Pages.save(root, chapter.id, chapter.revision, chapter.source + "\nSee [the start](/guide/v1/).\n").try
+    let copy = Marqraft.Pages.copyCollection(root, "/guide/v1/", "/guide/v2/", "Guide 2", true).try
     assert(copy.path == "/guide/v2/")
     assert(copy.title == "Guide 2")
     assert(copy.id != book.id)
@@ -19,7 +19,7 @@ describe "copy-collection" do
     let ids = site.navigation.map { |node| Marqraft.Data.text(node, "id", "") }
     assert(ids.contains?(book.id) && ids.contains?(copy.id))
     let original = site.navigation.find { |node| Marqraft.Data.text(node, "id", "") == book.id }.try
-    assert(!Marqraft.Project.listed?(original))
+    assert(!Marqraft.Navigation.listed?(original))
     let home = site.pages.find { |page| page.path == "/" }.try
     assert(!Marqraft.Theme.collectionsHtml(site, home.id, true).contains?("/guide/v1/"))
     assert(Marqraft.Theme.collectionsHtml(site, home.id, true).contains?("/guide/v2/"))
@@ -28,8 +28,8 @@ describe "copy-collection" do
   it "refuses a destination inside the source or already in use" do
     let root = "${FS.Directory.temporary}/marqraft-copy-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try
-    Marqraft.Project.createPage(root, "Guide", "/guide/", "landing", "").try
-    assert(!Marqraft.Project.copyCollection(root, "/guide/", "/guide/next/", "", false).ok?)
-    assert(!Marqraft.Project.copyCollection(root, "/guide/", "/tutorial/", "", false).ok?)
+    Marqraft.Pages.createPage(root, "Guide", "/guide/", "landing", "").try
+    assert(!Marqraft.Pages.copyCollection(root, "/guide/", "/guide/next/", "", false).ok?)
+    assert(!Marqraft.Pages.copyCollection(root, "/guide/", "/tutorial/", "", false).ok?)
   end
 end

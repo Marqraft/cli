@@ -29,7 +29,7 @@ describe "fragments mounts" do
     assert(list.description == "Ordered sequences.")
     assert(list.html.contains?("id=\"type-list\""))
     assert(Marqraft.Data.text(Marqraft.Data.decode(list.data).try, "version", "") == "1.0")
-    assert(!Marqraft.Project.save(root, list.id, list.revision, "---\nid: x\n---\n").ok?)
+    assert(!Marqraft.Pages.save(root, list.id, list.revision, "---\nid: x\n---\n").ok?)
   end
 
   it "renders the body as given, never through Markdown, and passes the data to the template" do

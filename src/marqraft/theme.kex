@@ -76,7 +76,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
   let title = authoring? then "<h1 data-marq-title>${Marqraft.Content.escape(page.title)}</h1>" else "<h1>${Marqraft.Content.escape(page.title)}</h1>"
   let content = authoring? then "<div data-marq-body>${body}</div>" else body
   let settings = Marqraft.Data.object(site.config.get("settings").or({})).try
-  let links = navigation(site, Marqraft.Project.visible(site.navigation, page.id), authoring?, page.id)
+  let links = navigation(site, Marqraft.Navigation.visible(site.navigation, page.id), authoring?, page.id)
   # A collection is a top-level navigation entry; its nested pages are its members.
   let collectionNodes = site.navigation.filter { |node| containsPage?(node, page.id) }
   let collectionNode = collectionNodes.first.or({})
@@ -92,7 +92,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
   end
   let collections = collectionsHtml(site, page.id, authoring?)
   let members = navigation(site, childrenOf(collectionNode), authoring?, page.id)
-  let menus = menuContext(site, page, Marqraft.Project.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
+  let menus = menuContext(site, page, Marqraft.Menus.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
   let base = {
     "title": page.title, "description": page.description, "path": page.path,
     "siteTitle": Marqraft.Data.text(site.config, "title", "My site"),
@@ -102,7 +102,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "navigation:collections": authoring? then "<div data-marq-navigation data-marq-scope=\"collections\">${collections}</div>" else collections,
     "navigation:collection": authoring? then "<div data-marq-navigation data-marq-scope=\"collection\" data-marq-collection=\"${Marqraft.Content.escape(collectionId)}\">${members}</div>" else members,
     "collectionId": collectionId, "collectionTitle": collectionTitle, "collectionPath": collectionPath,
-    "isHome": Marqraft.Project.home?(page),
+    "isHome": Marqraft.Navigation.home?(page),
     "searchIndex": Marqraft.Search.indexPath(site),
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
@@ -277,7 +277,7 @@ end
 foul collectionsHtml(site: Site, current: String, authoring?: Bool) -> String do
   # An unlisted collection (an older edition) is left out, unless the
   # reader is inside it.
-  let shown: [Any] = Marqraft.Project.visible(site.navigation, current)
+  let shown: [Any] = Marqraft.Navigation.visible(site.navigation, current)
   let items = shown.map do |node|
     let id = Marqraft.Data.text(node, "id", "")
     match Marqraft.Project.page(site, id) do
@@ -310,7 +310,7 @@ end
 
 # A theme menu as a list of links. Links to drafts only appear while authoring.
 foul menuHtml(site: Site, current: Page, id: String, authoring?: Bool) -> String do
-  let items = Marqraft.Project.menuItems(site, id).map do |item|
+  let items = Marqraft.Menus.menuItems(site, id).map do |item|
     let label = Marqraft.Content.escape(Marqraft.Data.text(item, "label", ""))
     let pageId = Marqraft.Data.text(item, "page", "")
     let url = Marqraft.Data.text(item, "url", "")

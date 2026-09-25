@@ -64,7 +64,7 @@ foul copyCollection(options: ParsedOptions) -> Integer do
   let from = options.arguments.first.or("")
   let to = options.arguments.drop(1).first.or("")
   let directory = options.arguments.drop(2).first.or(".")
-  let copied = Marqraft.Project.copyCollection(directory, from, to, options.value("title", ""), options.flagEnabled?("unlist")).try
+  let copied = Marqraft.Pages.copyCollection(directory, from, to, options.value("title", ""), options.flagEnabled?("unlist")).try
   IO.printLine("Copied ${from} to ${copied.path} (${copied.title}).")
   return 0
 rescue |error|

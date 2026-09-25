@@ -14,7 +14,7 @@ let indexPath(site: Site) -> String = Marqraft.Data.text(site.config, "search", 
 foul validate(site: Site) -> Void or! String do
   let url = indexPath(site)
   return Ok(()) if url.empty?
-  return Error("search must be a file path such as /search.json") if !Marqraft.Project.filePath?(url)
+  return Error("search must be a file path such as /search.json") if !Marqraft.Mounts.filePath?(url)
   let taken = site.mounts.any? { |mount| url.startsWith?(Marqraft.Data.text(mount, "path", "")) || Marqraft.Data.text(mount, "path", "") == url }
   return Error("search index collides with a mount: ${url}") if taken
   return Ok(())

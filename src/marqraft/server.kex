@@ -184,7 +184,7 @@ foul mountedPath(root: String, relative: String) -> String or! String do
       else
         rest
       end
-      return Error("generated source is rendered, not served") if Marqraft.Project.rawHidden?(site, mount, dir + "/" + file)
+      return Error("generated source is rendered, not served") if Marqraft.Mounts.rawHidden?(site, mount, dir + "/" + file)
       let path = Marqraft.Store.safePath(root, dir + "/" + file).try
       return Error("mounted file not found") if !FS.File.file?(path)
       return Ok(path)

@@ -88,7 +88,7 @@ foul copyMount(site: Site, stage: String, outputFiles: [String], publicRelative:
   end
   let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
   let dir = Marqraft.Data.text(mount, "dir", "")
-  let names = Marqraft.Store.files(site.root, dir).try.filter { |name| !name.drop(dir.count + 1).split("/").any? { |part| part.startsWith?(".") || part == ".gitkeep" } }.filter { |name| !Marqraft.Project.rawHidden?(site, mount, name) }
+  let names = Marqraft.Store.files(site.root, dir).try.filter { |name| !name.drop(dir.count + 1).split("/").any? { |part| part.startsWith?(".") || part == ".gitkeep" } }.filter { |name| !Marqraft.Mounts.rawHidden?(site, mount, name) }
   let results = names.map do |name|
     let relative = prefix + name.drop(dir.count + 1)
     return Error("mounted file collides with generated page: ${relative}") if outputFiles.contains?(relative)

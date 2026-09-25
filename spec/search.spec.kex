@@ -6,7 +6,7 @@ describe "search index" do
     Marqraft.Scaffold.create(root, "basic").try
     let config = FS.File.read(root + "/marqraft.jsonc").try
     assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search.json\",")))
-    Marqraft.Project.createPage(root, "Draft", "/draft/", "page", "").try
+    Marqraft.Pages.createPage(root, "Draft", "/draft/", "page", "").try
     let site = Marqraft.Project.load(root).try
     assert(Marqraft.Search.indexPath(site) == "/search.json")
     let entries = Marqraft.Data.list(Marqraft.Data.object(Marqraft.Data.decode(Marqraft.Search.index(site).try).try).try.get("entries").or([])).try

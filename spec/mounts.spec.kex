@@ -40,7 +40,7 @@ describe "generated mounts" do
     Marqraft.Build.run(root).try
     assert(FS.File.read(root + "/dist/prelude/0.4/index.html").try == "prelude 0.4")
     assert(!FS.File.file?(root + "/dist/prelude/.cache/note.txt"))
-    let _ = Marqraft.Project.createPage(root, "Clash", "/prelude/note/", "page", "").try
+    let _ = Marqraft.Pages.createPage(root, "Clash", "/prelude/note/", "page", "").try
     assert(!Marqraft.Project.load(root).ok?)
     assert(!Marqraft.Build.run(root).ok?)
   end
@@ -90,7 +90,7 @@ describe "generated mounts" do
     assert(landing.path == "/prelude/")
     assert(landing.body.contains?("[0.4](/prelude/0.4/)"))
     assert(!Marqraft.Server.mountedPath(root, "prelude/0.4/algebra.md").ok?)
-    assert(!Marqraft.Project.save(root, algebra.id, algebra.revision, algebra.source).ok?)
+    assert(!Marqraft.Pages.save(root, algebra.id, algebra.revision, algebra.source).ok?)
     assert(!Marqraft.API.document(root, algebra.id).ok?)
     Marqraft.Build.run(root).try
     assert(FS.File.read(root + "/dist/prelude/0.4/algebra/index.html").try.contains?("<h1>Algebra</h1>"))
@@ -127,7 +127,7 @@ describe "generated mounts and the authored tree" do
     Marqraft.Scaffold.create(root, "basic").try
     Marqraft.Store.write(root, "reference/prelude/0.4/list.md", "# List\n").try
     withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true}]").try
-    Marqraft.Project.createPage(root, "Notes", "/notes/", "page", "").try
+    Marqraft.Pages.createPage(root, "Notes", "/notes/", "page", "").try
     assert(Marqraft.Project.load(root).ok?)
     assert(!FS.File.read(root + "/.marqraft/navigation.json").try.contains?("mount-"))
   end

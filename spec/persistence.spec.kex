@@ -16,14 +16,14 @@ describe "filesystem persistence" do
     let site = Marqraft.Project.load(root).try
     let original = site.pages.first.try
     let changed = original.source.replace("title: \"Introduction\"", "title: \"Renamed\"")
-    let saved = Marqraft.Project.save(root, original.id, original.revision, changed).try
+    let saved = Marqraft.Pages.save(root, original.id, original.revision, changed).try
     assert(saved.id == original.id)
     assert(saved.path == original.path)
-    assert(!Marqraft.Project.save(root, original.id, original.revision, original.source).ok?)
-    let draft = Marqraft.Project.createPage(root, "Second", "/second/", "page", "").try
+    assert(!Marqraft.Pages.save(root, original.id, original.revision, original.source).ok?)
+    let draft = Marqraft.Pages.createPage(root, "Second", "/second/", "page", "").try
     assert(draft.draft?)
-    assert(!Marqraft.Project.createPage(root, "Collision", "/second/", "page", "").ok?)
-    assert(!Marqraft.Project.save(root, draft.id, draft.revision, draft.source.replace("/second/", "/")).ok?)
+    assert(!Marqraft.Pages.createPage(root, "Collision", "/second/", "page", "").ok?)
+    assert(!Marqraft.Pages.save(root, draft.id, draft.revision, draft.source.replace("/second/", "/")).ok?)
     assert(FS.File.read(root + "/" + original.file).try == changed)
   end
   it "accepts dotted version segments in paths" do
@@ -33,27 +33,27 @@ describe "filesystem persistence" do
     assert(Marqraft.Document.urlPath?("/prelude/0.4.0-beta.4/"))
     assert(!Marqraft.Document.urlPath?("/guide/../en/"))
     assert(!Marqraft.Document.urlPath?("/./"))
-    let draft = Marqraft.Project.createPage(root, "Overview", "/guide/0.4/en/overview/", "page", "").try
+    let draft = Marqraft.Pages.createPage(root, "Overview", "/guide/0.4/en/overview/", "page", "").try
     assert(draft.file == "content/guide/0.4/en/overview/index.md")
-    Marqraft.Project.save(root, draft.id, draft.revision, draft.source.replace("draft: true", "draft: false")).try
+    Marqraft.Pages.save(root, draft.id, draft.revision, draft.source.replace("draft: true", "draft: false")).try
     Marqraft.Build.run(root).try
     assert(FS.File.file?(root + "/dist/guide/0.4/en/overview/index.html"))
   end
   it "omits drafts, removes stale output and rejects broken draft links" do
     let root = "${FS.Directory.temporary}/marqraft-build-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "basic").try
-    let draft = Marqraft.Project.createPage(root, "Draft", "/draft/", "page", "").try
+    let draft = Marqraft.Pages.createPage(root, "Draft", "/draft/", "page", "").try
     Marqraft.Build.run(root).try
     assert(!FS.File.file?(root + "/dist/draft/index.html"))
-    let ready = Marqraft.Project.save(root, draft.id, draft.revision, draft.source.replace("draft: true", "draft: false")).try
+    let ready = Marqraft.Pages.save(root, draft.id, draft.revision, draft.source.replace("draft: true", "draft: false")).try
     Marqraft.Build.run(root).try
     assert(FS.File.file?(root + "/dist/draft/index.html"))
-    Marqraft.Project.save(root, ready.id, ready.revision, draft.source).try
+    Marqraft.Pages.save(root, ready.id, ready.revision, draft.source).try
     Marqraft.Build.run(root).try
     assert(!FS.File.file?(root + "/dist/draft/index.html"))
     let site = Marqraft.Project.load(root).try
     let home = site.pages.find { |page| page.path == "/" }.try
-    Marqraft.Project.save(root, home.id, home.revision, home.source + "\n[Draft](/draft/)\n").try
+    Marqraft.Pages.save(root, home.id, home.revision, home.source + "\n[Draft](/draft/)\n").try
     assert(!Marqraft.Build.run(root).ok?)
     assert(!FS.File.read(root + "/dist/index.html").try.contains?("/__marqraft/"))
   end

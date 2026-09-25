@@ -23,18 +23,18 @@ describe "theme menus" do
     assert(published.contains?("<ul class=\"marq-menu\"><li><a href=\"/\" aria-current=\"page\">Home</a></li><li><a href=\"https://kex.run/docs\">Docs</a></li></ul>"))
     assert(Marqraft.Theme.render(site, home, true).try.contains?("<div data-marq-menu=\"header\">"))
 
-    let draft = Marqraft.Project.createPage(root, "Draft", "/draft/", "page", "").try
-    let revision = Marqraft.Project.updateMenus(root, Digest.sha256(""), { "header": [{ "label": "Soon", "page": draft.id }, { "label": "Start", "page": home.id }] }).try
+    let draft = Marqraft.Pages.createPage(root, "Draft", "/draft/", "page", "").try
+    let revision = Marqraft.Menus.updateMenus(root, Digest.sha256(""), { "header": [{ "label": "Soon", "page": draft.id }, { "label": "Start", "page": home.id }] }).try
     let saved = Marqraft.Project.load(root).try
     let savedHome = saved.pages.find { |page| page.path == "/" }.try
     let output = Marqraft.Theme.render(saved, savedHome, false).try
     assert(output.contains?("<ul class=\"marq-menu\"><li><a href=\"/\" aria-current=\"page\">Start</a></li></ul>"))
     assert(Marqraft.Theme.render(saved, savedHome, true).try.contains?(">Soon</a>"))
 
-    assert(!Marqraft.Project.updateMenus(root, Digest.sha256(""), { "header": [] }).ok?)
-    assert(!Marqraft.Project.updateMenus(root, revision, { "header": [{ "label": "x", "url": "javascript:alert(1)" }] }).ok?)
-    assert(!Marqraft.Project.updateMenus(root, revision, { "header": [{ "label": "x", "page": "missing" }] }).ok?)
-    assert(!Marqraft.Project.updateMenus(root, revision, { "footer": [] }).ok?)
-    assert(Marqraft.Project.updateMenus(root, revision, { "header": [{ "label": "Prelude", "url": "/prelude/" }] }).ok?)
+    assert(!Marqraft.Menus.updateMenus(root, Digest.sha256(""), { "header": [] }).ok?)
+    assert(!Marqraft.Menus.updateMenus(root, revision, { "header": [{ "label": "x", "url": "javascript:alert(1)" }] }).ok?)
+    assert(!Marqraft.Menus.updateMenus(root, revision, { "header": [{ "label": "x", "page": "missing" }] }).ok?)
+    assert(!Marqraft.Menus.updateMenus(root, revision, { "footer": [] }).ok?)
+    assert(Marqraft.Menus.updateMenus(root, revision, { "header": [{ "label": "Prelude", "url": "/prelude/" }] }).ok?)
   end
 end

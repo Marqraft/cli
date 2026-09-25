@@ -1,0 +1,142 @@
+module Marqraft.Navigation
+
+# The page tree in .marqraft/navigation.json: top-level entries are
+# collections, the home page (/) is never in it, and generated pages are
+# added on load but never written back.
+
+using Marqraft.Document, only: [Page]
+using Marqraft.Project, only: [Site, load, pageGenerated?, pageId, pagePath, pageTitle]
+
+# A top-level entry marked "listed": false stays out of collection menus
+# (an older edition after copy-collection --unlist); it is still built and
+# linkable.
+let listed?(node: Any) -> Bool = Marqraft.Data.flag(node, "listed", true)
+
+# The top-level entries a menu shows: every listed one, plus an unlisted
+# one while the reader is inside it.
+let visible(nodes: [Any], current: String) -> [Any] do
+  return [] if nodes.empty?
+  let node = nodes.first.or({})
+  let rest = visible(nodes.drop(1), current)
+  return (listed?(node) || Marqraft.Theme.containsPage?(node, current)) then [node] + rest else rest
+end
+
+# The page at / is the site's home: the landing page the site title leads
+# to, not a collection. It takes no part in the navigation, so menus, pagers
+# and the authoring tree leave it out. A site that still lists it has the
+# entry dropped on load, anything nested under it promoted into its place,
+# and navigation.json follows on its next save.
+let home?(page: Page) -> Bool = pagePath(page) == "/" && !page.generated?
+
+let homeId(pages: [Page]) -> String do
+  match pages.find { |page| home?(page) } do
+    Just(page) => pageId(page)
+    None => ""
+  end
+end
+
+let withoutPage(nodes: [Any], id: String) -> [Any] do
+  return nodes if id.empty?
+  let none: [Any] = []
+  return nodes.reduce(none) do |kept, item|
+    let node = Marqraft.Data.object(item).or({})
+    let children = withoutPage(Marqraft.Theme.childrenOf(item), id)
+    Marqraft.Data.text(node, "id", "") == id then kept + children else kept + [node.put("children", children)]
+  end
+end
+
+# Generated pages render and publish, but the authoring tree only holds
+# editable files: identifiers of generated pages, and navigation stripped
+# down to the file tree the editor persists.
+foul generatedIds(site: Site) -> [String] do
+  return site.pages.filter { |page| pageGenerated?(page) }.map { |page| pageId(page) }
+end
+
+# The rendered mounts' collections, for the authoring header: read-only
+# links after the authored collections, so the editor shows the same
+# collections as the published site without writing them into the tree.
+foul generatedCollections(site: Site) -> [Any] do
+  let ids = generatedIds(site)
+  let tops = site.navigation.map { |node| Marqraft.Data.text(node, "id", "") }.filter { |id| ids.contains?(id) }
+  let found = tops.map { |id| site.pages.find { |item| pageId(item) == id } }.filter { |item| item.set? }
+  return found.map do |item|
+    let entry: Any = { "id": pageId(item.try), "title": pageTitle(item.try), "path": pagePath(item.try) }
+    entry
+  end
+end
+
+foul stripGenerated(nodes: [Any], ids: [String]) -> [Any] do
+  return stripNodes(nodes, ids, [])
+end
+
+let stripNodes(nodes: [Any], ids: [String], kept: [Any]) -> [Any] do
+  return kept if nodes.empty?
+  let node = Marqraft.Data.object(nodes.first.try).or({})
+  let children = Marqraft.Data.list(node.get("children").or([])).or([])
+  if Marqraft.Data.text(node, "id", "") == "" || ids.contains?(Marqraft.Data.text(node, "id", ""))
+    return stripNodes(nodes.drop(1), ids, kept)
+  end
+  return stripNodes(nodes.drop(1), ids, kept + [node.put("children", stripNodes(children, ids, []))])
+end
+
+let validateNavigation(nodes: [Any], pages: [Page], seen: [String]) -> [String] or! String do
+  return Ok(seen) if nodes.empty?
+  let node = Marqraft.Data.object(nodes.first.try).try
+  let id = Marqraft.Data.text(node, "id", "")
+  return Error("navigation has an unknown or repeated page: ${id}") if seen.contains?(id) || !pages.any? { |page| pageId(page) == id }
+  return Error("navigation cannot include a generated page: ${id}") if pages.any? { |page| pageId(page) == id && pageGenerated?(page) }
+  let children = Marqraft.Data.list(node.get("children").or([])).try
+  let visited = validateNavigation(children, pages, seen + [id]).try
+  return validateNavigation(nodes.drop(1), pages, visited)
+end
+
+let findNode(nodes: [Any], id: String) -> Any? do
+  return None if nodes.empty?
+  let node = nodes.first.or({})
+  return Just(node) if Marqraft.Data.text(node, "id", "") == id
+  match findNode(Marqraft.Theme.childrenOf(node), id) do
+    Just(found) => return Just(found)
+    None => return findNode(nodes.drop(1), id)
+  end
+end
+
+let subtreeIds(node: Any) -> [String] do
+  let children = Marqraft.Theme.childrenOf(node)
+  return children.reduce([Marqraft.Data.text(node, "id", "")]) do |ids, child|
+    ids + subtreeIds(child)
+  end
+end
+
+let renameNode(node: Any, renamed: [(String, String)]) -> Any do
+  let id = Marqraft.Data.text(node, "id", "")
+  let children = Marqraft.Theme.childrenOf(node).map { |child| renameNode(child, renamed) }
+  let copy: Any = { "id": renamedId(renamed, id), "children": children }
+  return copy
+end
+
+let insertChild(nodes: [Any], parent: String, child: Any) -> [Any] do
+  return nodes.map do |item|
+    let node = Marqraft.Data.object(item).or({})
+    let children = Marqraft.Data.list(node.get("children").or([])).or([])
+    let updated = Marqraft.Data.text(node, "id", "") == parent then children + [child] else insertChild(children, parent, child)
+    node.put("children", updated)
+  end
+end
+
+foul updateNavigation(root: String, revision: String, nodes: [Any]) -> String or! String do
+  let site = load(root).try
+  let file = Marqraft.Store.safePath(root, ".marqraft/navigation.json").try
+  return Error("conflict: navigation changed on disk") if Digest.sha256(FS.File.read(file).try) != revision
+  validateNavigation(nodes, site.pages, []).try
+  let source = Marqraft.Data.pretty(withoutPage(nodes, homeId(site.pages)))
+  Marqraft.Store.write(root, ".marqraft/navigation.json", source).try
+  return Ok(Digest.sha256(source))
+end
+
+let renamedId(renamed: [(String, String)], id: String) -> String do
+  let hits = renamed.flatMap do |pair|
+    let (old, fresh) = pair
+    old == id then [fresh] else []
+  end
+  return hits.first.or(id)
+end

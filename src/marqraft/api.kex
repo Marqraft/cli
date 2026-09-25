@@ -50,14 +50,14 @@ foul perform(root, "save", data) do
   let id = Marqraft.Data.text(data, "id", "")
   let revision = Marqraft.Data.text(data, "revision", "")
   let source = Marqraft.Data.text(data, "source", "")
-  let page = Marqraft.Project.save(root, id, revision, source).try
+  let page = Marqraft.Pages.save(root, id, revision, source).try
   return Ok(Marqraft.Document.metadata(page))
 end
 
 foul perform(root, "publish", data) do
   let id = Marqraft.Data.text(data, "id", "")
   let draft = Marqraft.Data.flag(data, "draft", true)
-  let page = Marqraft.Project.setDraft(root, id, draft).try
+  let page = Marqraft.Pages.setDraft(root, id, draft).try
   return Ok(Marqraft.Document.metadata(page))
 end
 
@@ -66,21 +66,21 @@ foul perform(root, "create", data) do
   let path = Marqraft.Data.text(data, "path", "")
   let template = Marqraft.Data.text(data, "template", "page")
   let parent = Marqraft.Data.text(data, "parent", "")
-  let page = Marqraft.Project.createPage(root, title, path, template, parent).try
+  let page = Marqraft.Pages.createPage(root, title, path, template, parent).try
   return Ok(Marqraft.Document.metadata(page))
 end
 
 foul perform(root, "navigation", data) do
   let revision = Marqraft.Data.text(data, "revision", "")
   let navigation = Marqraft.Data.list(data.get("navigation").or([])).try
-  let updated = Marqraft.Project.updateNavigation(root, revision, navigation).try
+  let updated = Marqraft.Navigation.updateNavigation(root, revision, navigation).try
   return Ok({ "revision": updated })
 end
 
 foul perform(root, "menus", data) do
   let revision = Marqraft.Data.text(data, "revision", "")
   let menus = Marqraft.Data.object(data.get("menus").or({})).try
-  let updated = Marqraft.Project.updateMenus(root, revision, menus).try
+  let updated = Marqraft.Menus.updateMenus(root, revision, menus).try
   return Ok({ "revision": updated })
 end
 
@@ -235,14 +235,14 @@ foul metadata(root: String) -> {String: Any} or! String do
   let configSource = FS.File.read(root + "/marqraft.jsonc").try
   let navSource = FS.File.read(root + "/.marqraft/navigation.json").try
   let menusSource = FS.File.read(root + "/.marqraft/menus.json").or("")
-  let menus = Marqraft.Project.menuMap(site, Marqraft.Project.menuIds(site), Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
+  let menus = Marqraft.Menus.menuMap(site, Marqraft.Menus.menuIds(site), Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
   let themeFiles = Marqraft.Store.files(root, site.themeDir).try
   let fingerprint = themeFiles.map { |file| Digest.fileSha256(root + "/" + file).or("") }.join("")
   return Ok({ "project": Digest.sha256(root), "config": site.config, "theme": Marqraft.Blocks.editorTheme(root, site.theme).try,
     "themeName": Marqraft.Data.text(site.config, "theme", site.themeDir),
     "pages": site.pages.filter { |page| !page.generated? }.map { |page| Marqraft.Document.metadata(page) },
-    "navigation": Marqraft.Project.stripGenerated(site.navigation, Marqraft.Project.generatedIds(site)), "navigationRevision": Digest.sha256(navSource),
-    "generatedCollections": Marqraft.Project.generatedCollections(site),
+    "navigation": Marqraft.Navigation.stripGenerated(site.navigation, Marqraft.Navigation.generatedIds(site)), "navigationRevision": Digest.sha256(navSource),
+    "generatedCollections": Marqraft.Navigation.generatedCollections(site),
     "menus": menus, "menusRevision": Digest.sha256(menusSource),
     "uploads": Marqraft.Project.uploadDirectory(site),
     "settingsRevision": Digest.sha256(configSource), "themeRevision": Digest.sha256(fingerprint) })

@@ -88,6 +88,7 @@ emit plain HTML:
 | `navigation` with `scope="collection"` | the pages nested under the current page's collection |
 | `pager` with `scope="collection"` | reading order within the current collection, starting at the collection page |
 | `pager`      | `<nav class="marq-pager">` with `a.marq-pager-previous` / `a.marq-pager-next` in reading order, or nothing |
+| `versions`   | the page's version as `<span class="marq-version">`, or, on a generated page whose mount has other versions, `<select class="marq-versions">` whose options open the same page in each version (or that version's index where the page does not exist); nothing when the page has no version |
 
 ### Collections
 
@@ -139,10 +140,22 @@ authored pages: one entry per page and one per `h2`/`h3` section, as
 `{ "entries": [{ "kind": "page" | "section", "name", "qualifiedName",
 "summary", "text", "url" }] }`. `qualifiedName` is the page's collection for
 a page and the page's title for a section; `url` is the page path, with the
-heading's anchor for a section. The shape follows Tey docgen's
-`search.json`, so a theme can search the site and a generated reference with
-one script. Generated pages are left to their producer's own index. The
-path must be a file path that no page, upload or mount uses.
+heading's anchor for a section. The path must be a file path that no page,
+upload or mount uses.
+
+A mount whose producer writes its own index names it with `"search"`, a
+file in each version directory:
+
+```jsonc
+{ "path": "/prelude/", "dir": "generated/prelude", "pages": true, "format": "fragments", "search": "search.json" }
+```
+
+The entries of the mount's newest version (by version order: numbers as
+numbers, a release after its pre-releases) join the index as the producer
+wrote them — Tey docgen's `kind`, `name`, `qualifiedName`, `summary`,
+`signatures`, `types` — with a site `url` built from `urlPath` and `anchor`,
+plus `collection` (the mount's title) and `version`. A theme searches one
+file and needs to know nothing about the producer.
 
 ### Generated mounts
 

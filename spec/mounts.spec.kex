@@ -122,7 +122,7 @@ describe "generated mounts" do
     let home = site.pages.find { |item| Marqraft.Theme.pathOf(item) == "/" }.try
     let html = Marqraft.Theme.render(site, home, false).try
     assert(!html.contains?("marq-versions"))
-    assert(!Marqraft.Theme.bindings("<marqraft-content source=\"versions\"></marqraft-content>", { "versions": "" }, false).ok?)
+    assert(!Marqraft.Theme.bindings("<marqraft-content source=\"bogus\"></marqraft-content>", { "bogus": "" }, false).ok?)
   end
 end
 
@@ -135,6 +135,43 @@ describe "generated mounts and the authored tree" do
     Marqraft.Pages.createPage(root, "Notes", "/notes/", "page", "").try
     assert(Marqraft.Project.load(root).ok?)
     assert(!FS.File.read(root + "/.marqraft/navigation.json").try.contains?("mount-"))
+  end
+end
+
+describe "mount versions and search" do
+  it "orders versions numerically, with releases after their pre-releases" do
+    assert(Marqraft.Mounts.compareVersions("0.10", "0.9") == 1)
+    assert(Marqraft.Mounts.compareVersions("0.4.0", "0.4.0-beta.4") == 1)
+    assert(Marqraft.Mounts.compareVersions("0.4.0-beta.4-dev", "0.4.0-beta.3") == 1)
+    assert(Marqraft.Mounts.compareVersions("0.4.0-alpha", "0.4.0-beta") == -1)
+    assert(Marqraft.Mounts.compareVersions("1.2", "1.2") == 0)
+  end
+  it "switches a generated page between versions and merges the newest version's index into search" do
+    let root = "${FS.Directory.temporary}/marqraft-mount-versions-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    Marqraft.Store.write(root, "reference/prelude/0.9/algebra.md", "# Algebra").try
+    Marqraft.Store.write(root, "reference/prelude/0.10/algebra.md", "# Algebra").try
+    Marqraft.Store.write(root, "reference/prelude/0.10/binary.md", "# Binary").try
+    Marqraft.Store.write(root, "reference/prelude/0.9/search.json", "{\"entries\": [{\"name\": \"old\", \"urlPath\": \"algebra\"}]}").try
+    Marqraft.Store.write(root, "reference/prelude/0.10/search.json", "{\"entries\": [{\"name\": \"combine\", \"kind\": \"function\", \"urlPath\": \"algebra\", \"anchor\": \"combine\"}]}").try
+    let config = FS.File.read(root + "/marqraft.jsonc").try
+    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search.json\",")))
+    withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true, \"title\": \"Prelude\", \"search\": \"search.json\"}]").try
+    let site = Marqraft.Project.load(root).try
+    assert(Marqraft.Mounts.newestVersion(site.mounts.first.try).try.name == "0.10")
+    # The same page in the other version where it exists, else that version's index.
+    let binary = Marqraft.Project.page(site, "mount-prelude-0-10-binary").try
+    let switcher = Marqraft.Theme.versionsHtml(site, binary, "0.10")
+    assert(switcher.contains?("<option value=\"/prelude/0.10/binary/\" selected>0.10</option>"))
+    assert(switcher.contains?("<option value=\"/prelude/0.9/\">0.9</option>"))
+    let algebra = Marqraft.Project.page(site, "mount-prelude-0-9-algebra").try
+    assert(Marqraft.Theme.versionsHtml(site, algebra, "0.9").contains?("<option value=\"/prelude/0.10/algebra/\">0.10</option>"))
+    # Search holds the newest version's entries, with site URLs.
+    let entries = Marqraft.Data.list(Marqraft.Data.object(Marqraft.Data.decode(Marqraft.Search.index(site).try).try).try.get("entries").or([])).try
+    let combine = entries.find { |entry| Marqraft.Data.text(entry, "name", "") == "combine" }.try
+    assert(Marqraft.Data.text(combine, "url", "") == "/prelude/0.10/algebra/#combine")
+    assert(Marqraft.Data.text(combine, "collection", "") == "Prelude" && Marqraft.Data.text(combine, "version", "") == "0.10")
+    assert(!entries.any? { |entry| Marqraft.Data.text(entry, "name", "") == "old" })
   end
 end
 

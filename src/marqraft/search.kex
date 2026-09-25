@@ -2,13 +2,16 @@ module Marqraft.Search
 
 using Marqraft.Project, only: [Site]
 using Marqraft.Document, only: [Page]
+using Marqraft.Mounts, only: [Mount, MountVersion]
 
-# The site's own search index, opt-in with "search": "/search.json" in
+# The site's search index, opt-in with "search": "/search.json" in
 # marqraft.jsonc: served by `marq dev` and written by `marq build`. One entry
-# per published authored page and one per h2/h3 section, shaped like the
-# entries of Tey docgen's search.json (kind, name, qualifiedName, summary)
-# plus a site URL, so a theme can search both with one script. Generated
-# pages are left to their producer's own index.
+# per published authored page and one per h2/h3 section, then the entries of
+# every mount that names its producer's index ("search" on the mount), from
+# the mount's newest version. Entries keep the producer's shape (kind,
+# name, qualifiedName, summary, signatures, types — Tey docgen's) and gain a
+# site `url`, plus `collection` and `version` for generated ones, so a theme
+# searches one file and needs to know nothing about the producer.
 let indexPath(site: Site) -> String = Marqraft.Data.text(site.config, "search", "")
 
 foul validate(site: Site) -> Void or! String do
@@ -24,10 +27,36 @@ foul index(site: Site) -> String or! String do
   let blocks = Marqraft.Data.list(site.theme.get("blocks").or([])).try
   let pages = site.pages.filter { |page| !page.generated? && !page.draft? }
   let none: [Any] = []
-  let entries = pages.reduce(none) do |all, page|
+  let authored = pages.reduce(none) do |all, page|
     all + pageEntries(site, page, Marqraft.Content.render(page.body, false, site.root, blocks))
   end
-  return Ok(Marqraft.Data.encode({ "entries": entries }))
+  let generated = site.mounts.reduce(none) { |all, mount| all + mountEntries(site, mount) }
+  return Ok(Marqraft.Data.encode({ "entries": authored + generated }))
+end
+
+# A producer's entries name their page relative to the version directory
+# ("urlPath", with an optional "anchor"); a missing or unreadable index
+# contributes nothing.
+foul mountEntries(site: Site, mount: Mount) -> [Any] do
+  return [] if mount.search.empty? || mount.dir.empty?
+  match Marqraft.Mounts.newestVersion(mount) do
+    None => []
+    Just(version) => do
+      let file = Marqraft.Store.safePath(site.root, "${mount.dir}/${version.name}/${mount.search}").or("")
+      let raw = Marqraft.Data.object(Marqraft.Data.read(file).or({})).or({})
+      let entries = Marqraft.Data.list(raw.get("entries").or([])).or([])
+      entries.map { |entry| producerEntry(entry, mount, version) }
+    end
+  end
+end
+
+let producerEntry(entry: Any, mount: Mount, version: MountVersion) -> Any do
+  let fields = Marqraft.Data.object(entry).or({})
+  let page = Marqraft.Data.text(fields, "urlPath", "")
+  let anchor = Marqraft.Data.text(fields, "anchor", "")
+  let url = version.url + (page.empty? then "" else page + "/") + (anchor.empty? then "" else "#" + anchor)
+  let merged: Any = fields.put("url", url).put("collection", mount.title).put("version", version.name)
+  return merged
 end
 
 foul pageEntries(site: Site, page: Page, html: String) -> [Any] do

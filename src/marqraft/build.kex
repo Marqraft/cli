@@ -39,6 +39,13 @@ foul run(directory: String) -> Void or! String do
     Ok(())
   end
   firstError(assetResults).try
+  let search = Marqraft.Search.indexPath(site)
+  if !search.empty?
+    let relative = search.drop(1)
+    return Error("search index collides with ${relative}") if outputFiles.contains?(relative) || assets.map { |asset| asset.drop(7) }.contains?(relative)
+    Marqraft.Store.write(site.root, stage + "/" + relative, Marqraft.Search.index(site).try).try
+    let _ = relative
+  end
   let themeAssets = Marqraft.Store.files(site.root, site.themeDir + "/assets").try
   let themeResults = themeAssets.map do |asset|
     let relative = "_theme/" + asset.drop(site.themeDir.count + 8)

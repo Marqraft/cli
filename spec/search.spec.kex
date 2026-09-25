@@ -1,0 +1,32 @@
+using Marqraft.Project
+
+describe "search index" do
+  it "indexes the published authored pages and their sections, and builds with the site" do
+    let root = "${FS.Directory.temporary}/marqraft-search-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    let config = FS.File.read(root + "/marqraft.jsonc").try
+    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search.json\",")))
+    Marqraft.Project.createPage(root, "Draft", "/draft/", "page", "").try
+    let site = Marqraft.Project.load(root).try
+    assert(Marqraft.Search.indexPath(site) == "/search.json")
+    let entries = Marqraft.Data.list(Marqraft.Data.object(Marqraft.Data.decode(Marqraft.Search.index(site).try).try).try.get("entries").or([])).try
+    let urls = entries.map { |entry| Marqraft.Data.text(entry, "url", "") }
+    assert(urls.contains?("/"))
+    assert(urls.contains?("/tutorial/"))
+    assert(!urls.contains?("/draft/"))
+    let section = entries.find { |entry| Marqraft.Data.text(entry, "url", "") == "/#make-it-yours" }.try
+    assert(Marqraft.Data.text(section, "kind", "") == "section")
+    assert(Marqraft.Data.text(section, "name", "") == "Make it yours")
+    assert(Marqraft.Data.text(section, "qualifiedName", "") == "Introduction")
+    assert(Marqraft.Data.text(section, "summary", "").startsWith?("Click any paragraph"))
+    Marqraft.Build.run(root).try
+    assert(FS.File.read(root + "/dist/search.json").try == Marqraft.Search.index(site).try)
+  end
+  it "rejects a search path that is not a file path" do
+    let root = "${FS.Directory.temporary}/marqraft-search-path-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, "basic").try
+    let config = FS.File.read(root + "/marqraft.jsonc").try
+    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search/\",")))
+    assert(!Marqraft.Project.load(root).ok?)
+  end
+end

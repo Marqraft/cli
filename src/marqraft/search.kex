@@ -1,0 +1,73 @@
+module Marqraft.Search
+
+using Marqraft.Project, only: [Site]
+using Marqraft.Document, only: [Page]
+
+# The site's own search index, opt-in with "search": "/search.json" in
+# marqraft.jsonc: served by `marq dev` and written by `marq build`. One entry
+# per published authored page and one per h2/h3 section, shaped like the
+# entries of Tey docgen's search.json (kind, name, qualifiedName, summary)
+# plus a site URL, so a theme can search both with one script. Generated
+# pages are left to their producer's own index.
+let indexPath(site: Site) -> String = Marqraft.Data.text(site.config, "search", "")
+
+foul validate(site: Site) -> Void or! String do
+  let url = indexPath(site)
+  return Ok(()) if url.empty?
+  return Error("search must be a file path such as /search.json") if !Marqraft.Project.filePath?(url)
+  let taken = site.mounts.any? { |mount| url.startsWith?(Marqraft.Data.text(mount, "path", "")) || Marqraft.Data.text(mount, "path", "") == url }
+  return Error("search index collides with a mount: ${url}") if taken
+  return Ok(())
+end
+
+foul index(site: Site) -> String or! String do
+  let blocks = Marqraft.Data.list(site.theme.get("blocks").or([])).try
+  let pages = site.pages.filter { |page| !page.generated? && !page.draft? }
+  let none: [Any] = []
+  let entries = pages.reduce(none) do |all, page|
+    all + pageEntries(site, page, Marqraft.Content.render(page.body, false, site.root, blocks))
+  end
+  return Ok(Marqraft.Data.encode({ "entries": entries }))
+end
+
+foul pageEntries(site: Site, page: Page, html: String) -> [Any] do
+  let context = collectionTitle(site, page)
+  let chunks = html.replace("<h3 id=\"", "<h2 id=\"").split("<h2 id=\"")
+  let lead = plain(chunks.first.or(""))
+  let summary = page.description.empty? then clip(lead, 200) else page.description
+  let head: Any = { "kind": "page", "name": page.title, "qualifiedName": context, "summary": summary, "url": Marqraft.Theme.pathOf(page), "text": clip(lead, 2000) }
+  let sections = chunks.drop(1).map do |chunk|
+    let id = chunk.split("\"").first.or("")
+    # id="values">Values</h2> ...: the heading's text, then what follows
+    # its closing tag.
+    let rest = chunk.drop(id.count + 2)
+    let heading = plain(rest.split("</h").first.or(""))
+    let after = rest.split("</h").drop(1).join("</h")
+    let body = plain(after.split(">").drop(1).join(">"))
+    let entry: Any = { "kind": "section", "name": heading, "qualifiedName": page.title, "summary": clip(body, 200), "url": "${Marqraft.Theme.pathOf(page)}#${id}", "text": clip(body, 2000) }
+    entry
+  end
+  return [head] + sections
+end
+
+let collectionTitle(site: Site, page: Page) -> String do
+  let node = site.navigation.find { |item| Marqraft.Theme.containsPage?(item, page.id) }.or({})
+  let id = Marqraft.Data.text(node, "id", "")
+  return "" if id.empty? || id == page.id
+  match site.pages.find { |item| item.id == id } do
+    Just(item) => Marqraft.Theme.titleOf(item)
+    None => ""
+  end
+end
+
+# Text without markup: tags dropped, entities decoded, whitespace collapsed.
+let plain(html: String) -> String do
+  let parts = html.split("<")
+  let text = ([parts.first.or("")] + parts.drop(1).map { |part| part.split(">").drop(1).join(">") }).join(" ")
+  let decoded = text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+  return decoded.split("\n").join(" ").split(" ").filter { |word| !word.empty? }.join(" ")
+end
+
+let clip(text: String, limit: Integer) -> String do
+  return text.count <= limit then text else text.take(limit) + "…"
+end

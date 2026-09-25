@@ -31,7 +31,8 @@ export function NavigationTree({ project, currentId, root, saveNavigation, creat
   const listed = new Set<string>();
   const collect = (nodes: Nav[]) => nodes.forEach(node => { listed.add(node.id); collect(node.children); });
   collect(project.navigation);
-  const unlisted = project.pages.filter(page => !listed.has(page.id));
+  // The home page (/) is never in the navigation, so it is not "missing" from it.
+  const unlisted = project.pages.filter(page => !listed.has(page.id) && page.path !== '/');
 
   const apply = (tree: Nav[]) => { if (tree !== project.navigation) void saveNavigation(tree); };
   const placementFor = (event: React.DragEvent, element: HTMLElement): Placement => {

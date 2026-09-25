@@ -160,7 +160,8 @@ foul renderElement(node: Element, authoring?: Bool, root: String = "", definitio
     let meta = authoring? then " data-marq-code=\"${escape(JSON.stringify(attrs))}\"" else ""
     let filename = attrs.get("filename").or("")
     let caption = attrs.get("caption").or("")
-    # The editor reads code as plain text; highlighting is for published pages.
+    # The editor edits code as plain text and highlights it with decorations
+    # (the "highlight" action); only published pages carry the spans.
     let highlighted? = !authoring? && attrs.get("language").or("") == "kex"
     let code = highlighted? then Markdown.Highlight.highlight(unescape(node.body)) else escape(unescape(node.body))
     return "<figure class=\"marq-code\"${meta}><figcaption>${escape(filename)}</figcaption><pre class=\"code\"><code>${code}</code></pre><small>${escape(caption)}</small></figure>"

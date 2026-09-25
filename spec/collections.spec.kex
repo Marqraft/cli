@@ -17,12 +17,12 @@ describe "collections" do
     Marqraft.Scaffold.create(root, external).try
     let site = Marqraft.Project.load(root).try
     let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
-    let guide = Marqraft.Project.createPage(root, "Guide", "/guide/", "page", "").try
-    Marqraft.Project.setDraft(root, guide.id, false).try
-    let overview = Marqraft.Project.createPage(root, "Overview", "/guide/overview/", "page", guide.id).try
-    let steps = Marqraft.Project.createPage(root, "First steps", "/tutorial/first-steps/", "page", tutorial.id).try
-    Marqraft.Project.save(root, overview.id, overview.revision, overview.source.replace("draft: true", "draft: false")).try
-    Marqraft.Project.save(root, steps.id, steps.revision, steps.source.replace("draft: true", "draft: false")).try
+    let guide = Marqraft.Pages.createPage(root, "Guide", "/guide/", "page", "").try
+    Marqraft.Pages.setDraft(root, guide.id, false).try
+    let overview = Marqraft.Pages.createPage(root, "Overview", "/guide/overview/", "page", guide.id).try
+    let steps = Marqraft.Pages.createPage(root, "First steps", "/tutorial/first-steps/", "page", tutorial.id).try
+    Marqraft.Pages.save(root, overview.id, overview.revision, overview.source.replace("draft: true", "draft: false")).try
+    Marqraft.Pages.save(root, steps.id, steps.revision, steps.source.replace("draft: true", "draft: false")).try
     let loaded = Marqraft.Project.load(root).try
     let page = loaded.pages.find { |item| item.id == overview.id }.try
     let html = Marqraft.Theme.render(loaded, page, false).try
@@ -63,33 +63,33 @@ describe "collections" do
     assert(!html.contains?("rel=\"next\"") && !html.contains?("rel=\"prev\""))
     assert(Marqraft.Theme.render(site, tutorial, false).try.contains?("<p class=\"home\">false</p>"))
     # The home page takes no subpages and is no collection to copy.
-    assert(!Marqraft.Project.createPage(root, "Child", "/child/", "page", home.id).ok?)
-    assert(!Marqraft.Project.copyCollection(root, "/", "/v2/", "", false).ok?)
+    assert(!Marqraft.Pages.createPage(root, "Child", "/child/", "page", home.id).ok?)
+    assert(!Marqraft.Pages.copyCollection(root, "/", "/v2/", "", false).ok?)
     # A site that listed it as a collection keeps what was nested under it, in its place.
-    let old = Marqraft.Project.createPage(root, "Old", "/old/", "page", "").try
+    let old = Marqraft.Pages.createPage(root, "Old", "/old/", "page", "").try
     let nested: Any = { "id": old.id, "children": [] }
     let legacyHome: Any = { "id": home.id, "children": [nested] }
     let legacyTutorial: Any = { "id": tutorial.id, "children": [] }
     assert(FS.File.write(navFile, Marqraft.Data.pretty([legacyHome, legacyTutorial])))
     let legacy = Marqraft.Project.load(root).try
-    assert(legacy.navigation.map { |node| Marqraft.Data.text(node, "id", "") } == [old.id, tutorial.id])
+    assert(legacy.navigation.map { |node| node.id } == [old.id, tutorial.id])
     # ...and navigation.json drops the entry on its next save.
     let revision = Digest.sha256(FS.File.read(navFile).try)
-    Marqraft.Project.updateNavigation(root, revision, [legacyHome, legacyTutorial]).try
+    Marqraft.Navigation.updateNavigation(root, revision, Marqraft.Navigation.parseTree([legacyHome, legacyTutorial]).try).try
     assert(!FS.File.read(navFile).try.contains?(home.id))
     assert(FS.File.read(navFile).try.contains?(old.id))
   end
   it "publishes and unpublishes a page from its draft line only" do
     let root = "${FS.Directory.temporary}/marqraft-publish-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try
-    let draft = Marqraft.Project.createPage(root, "Tutorial", "/guides/", "landing", "").try
+    let draft = Marqraft.Pages.createPage(root, "Tutorial", "/guides/", "landing", "").try
     assert(draft.draft?)
-    let published = Marqraft.Project.setDraft(root, draft.id, false).try
+    let published = Marqraft.Pages.setDraft(root, draft.id, false).try
     assert(!published.draft?)
     let source = FS.File.read(root + "/content/guides/index.md").try
     assert(source == draft.source.replace("draft: true", "draft: false"))
-    assert(Marqraft.Project.setDraft(root, draft.id, true).try.draft?)
-    assert(!Marqraft.Project.setDraft(root, "missing", false).ok?)
+    assert(Marqraft.Pages.setDraft(root, draft.id, true).try.draft?)
+    assert(!Marqraft.Pages.setDraft(root, "missing", false).ok?)
     assert(Marqraft.Document.withDraft("---\nid: a\ndraft: false\n---\ndraft: false in the body\n", true) == "---\nid: a\ndraft: true\n---\ndraft: false in the body\n")
   end
 end

@@ -1,0 +1,84 @@
+module Marqraft.Menus
+
+# Theme-declared menus: the site's saved items or the theme's defaults,
+# and saving them.
+
+using Marqraft.Document, only: [Page]
+using Marqraft.Project, only: [Site, load]
+
+# The items of a theme menu: the site's own list once it has saved one,
+# otherwise the defaults the theme declares. Defaults name pages by path;
+# stored items name them by identity, so moving a page keeps its link.
+let menuItems(site: Site, id: String) -> [Any] do
+  match site.menus.get(id) do
+    Just(items) => Marqraft.Data.list(items).or([])
+    None => do
+      let declared = Marqraft.Data.list(site.theme.get("menus").or([])).or([]).find { |menu| Marqraft.Data.text(menu, "id", "") == id }
+      let defaults = Marqraft.Data.list(Marqraft.Data.object(declared.or({})).or({}).get("default").or([])).or([])
+      return defaults.map { |item| defaultItem(site, item) }
+    end
+  end
+end
+
+let defaultItem(site: Site, item: Any) -> {String: Any} do
+  let label = Marqraft.Data.text(item, "label", "")
+  let path = Marqraft.Data.text(item, "path", "")
+  match site.pages.find { |page| path != "" && page.path == path } do
+    Just(page) => { "label": label, "page": page.id }
+    None => { "label": label, "url": Marqraft.Data.text(item, "url", path) }
+  end
+end
+
+let menuIds(site: Site) -> [String] do
+  return Marqraft.Data.list(site.theme.get("menus").or([])).or([]).map { |menu| Marqraft.Data.text(menu, "id", "") }
+end
+
+# Every declared menu with its current items, for the authoring API.
+let menuMap(site: Site, ids: [String], values: {String: Any}) -> {String: Any} do
+  return values if ids.empty?
+  let id = ids.first.or("")
+  return menuMap(site, ids.drop(1), values.put(id, menuItems(site, id)))
+end
+
+foul updateMenus(root: String, revision: String, menus: {String: Any}) -> String or! String do
+  let site = load(root).try
+  let file = Marqraft.Store.safePath(root, ".marqraft/menus.json").try
+  return Error("conflict: menus changed on disk") if Digest.sha256(FS.File.read(file).or("")) != revision
+  validateMenus(menus.entries, menuIds(site), site.pages).try
+  # Menus of a previously selected theme are kept for switching back.
+  let source = Marqraft.Data.pretty(site.menus.merge(menus))
+  Marqraft.Store.write(root, ".marqraft/menus.json", source).try
+  return Ok(Digest.sha256(source))
+end
+
+let validateMenus(entries: [(String, Any)], declared: [String], pages: [Page]) -> Void or! String do
+  return Ok(()) if entries.empty?
+  let (id, value) = entries.first.try
+  return Error("unknown menu: ${id}") if !declared.contains?(id)
+  let items = Marqraft.Data.list(value).try
+  return Error("menu ${id} has more than 50 items") if items.count > 50
+  let problem = items.map { |item| menuItemError(item, pages) }.find { |message| message != "" }.or("")
+  return Error(problem) if problem != ""
+  return validateMenus(entries.drop(1), declared, pages)
+end
+
+let menuItemError(item: Any, pages: [Page]) -> String do
+  let fields = Marqraft.Data.object(item).or({})
+  let label = Marqraft.Data.text(item, "label", "")
+  let page = Marqraft.Data.text(item, "page", "")
+  let url = Marqraft.Data.text(item, "url", "")
+  let message = if fields.empty?
+    "menu items must be objects"
+  elif label.trim.empty? || label.count > 80
+    "menu items need a label of at most 80 characters"
+  elif page != "" && url != ""
+    "a menu item links to a page or a URL, not both"
+  elif page != "" && !pages.any? { |candidate| candidate.id == page }
+    "menu item links to an unknown page"
+  elif page == "" && (url == "" || Marqraft.Content.safeURL(url) == "#" || url.contains?(" "))
+    "menu item URLs must be http(s), mailto or a site path"
+  else
+    ""
+  end
+  return message
+end

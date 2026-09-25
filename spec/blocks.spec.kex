@@ -20,7 +20,7 @@ describe "theme template blocks" do
     let site = Marqraft.Project.load(root).try
     let home = site.pages.find { |page| page.path == "/" }.try
     let source = home.source + "\n<marqraft-card title=\"A &lt;card&gt;\">\nSome **bold** text.\n</marqraft-card>\n"
-    let saved = Marqraft.Project.save(root, home.id, home.revision, source).try
+    let saved = Marqraft.Pages.save(root, home.id, home.revision, source).try
     let loaded = Marqraft.Project.load(root).try
     let published = Marqraft.Theme.render(loaded, saved, false).try
     assert(published.contains?("<section class=\"card\"><h4>A &lt;card&gt;</h4><div>"))

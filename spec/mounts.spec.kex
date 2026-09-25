@@ -10,14 +10,16 @@ describe "generated mounts" do
     withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}]").try
     let site = Marqraft.Project.load(root).try
     assert(site.mounts.count == 1)
-    let versions = Marqraft.Data.list(Marqraft.Data.object(site.mounts.first.try).or({}).get("versions").or([])).or([])
-    assert(versions.count == 2)
-    assert(Marqraft.Data.text(versions.first.try, "path", "") == "/prelude/0.4/")
-    assert(Marqraft.Data.text(versions.drop(1).first.try, "name", "") == "0.5")
-    assert(FS.File.read(Marqraft.Server.mountedPath(root, "prelude/0.4/index.html").try).try == "prelude 0.4")
-    assert(FS.File.read(Marqraft.Server.mountedPath(root, "prelude/0.5/").try).try == "prelude 0.5")
-    assert(!Marqraft.Server.mountedPath(root, "prelude/0.4/../../marqraft.jsonc").ok?)
-    assert(!Marqraft.Server.mountedPath(root, "guide/").ok?)
+    let versions = site.mounts.first.try.versions
+    assert(versions.map { |version| version.url } == ["/prelude/0.4/", "/prelude/0.5/"])
+    assert(versions.map { |version| version.name } == ["0.4", "0.5"])
+    # Templates see the same, as context["mounts"].
+    let described = Marqraft.Data.list(Marqraft.Data.object(Marqraft.Mounts.describe(site.mounts.first.try)).try.get("versions").or([])).try
+    assert(Marqraft.Data.text(described.first.try, "path", "") == "/prelude/0.4/")
+    assert(FS.File.read(root + "/" + Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "prelude/0.4/index.html").try).try == "prelude 0.4")
+    assert(FS.File.read(root + "/" + Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "prelude/0.5/").try).try == "prelude 0.5")
+    assert(!Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "prelude/0.4/../../marqraft.jsonc").ok?)
+    assert(!Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "guide/").ok?)
   end
   it "mounts single generated files at exact URLs" do
     let root = "${FS.Directory.temporary}/marqraft-mount-file-${Marqraft.Store.identifier}"
@@ -25,7 +27,7 @@ describe "generated mounts" do
     Marqraft.Store.write(root, "reference/search.json", "{}").try
     Marqraft.Store.write(root, "reference/prelude/0.4/index.html", "prelude 0.4").try
     withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\"}, {\"path\": \"/search.json\", \"file\": \"reference/search.json\"}]").try
-    assert(FS.File.read(Marqraft.Server.mountedPath(root, "search.json").try).try == "{}")
+    assert(FS.File.read(root + "/" + Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "search.json").try).try == "{}")
     Marqraft.Build.run(root).try
     assert(FS.File.read(root + "/dist/search.json").try == "{}")
     assert(!withMounts(root, "[{\"path\": \"/gone.json\", \"file\": \"reference/missing.json\"}]").ok?)
@@ -40,7 +42,7 @@ describe "generated mounts" do
     Marqraft.Build.run(root).try
     assert(FS.File.read(root + "/dist/prelude/0.4/index.html").try == "prelude 0.4")
     assert(!FS.File.file?(root + "/dist/prelude/.cache/note.txt"))
-    let _ = Marqraft.Project.createPage(root, "Clash", "/prelude/note/", "page", "").try
+    let _ = Marqraft.Pages.createPage(root, "Clash", "/prelude/note/", "page", "").try
     assert(!Marqraft.Project.load(root).ok?)
     assert(!Marqraft.Build.run(root).ok?)
   end
@@ -89,8 +91,8 @@ describe "generated mounts" do
     let landing = Marqraft.Project.page(site, "mount-prelude").try
     assert(landing.path == "/prelude/")
     assert(landing.body.contains?("[0.4](/prelude/0.4/)"))
-    assert(!Marqraft.Server.mountedPath(root, "prelude/0.4/algebra.md").ok?)
-    assert(!Marqraft.Project.save(root, algebra.id, algebra.revision, algebra.source).ok?)
+    assert(!Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "prelude/0.4/algebra.md").ok?)
+    assert(!Marqraft.Pages.save(root, algebra.id, algebra.revision, algebra.source).ok?)
     assert(!Marqraft.API.document(root, algebra.id).ok?)
     Marqraft.Build.run(root).try
     assert(FS.File.read(root + "/dist/prelude/0.4/algebra/index.html").try.contains?("<h1>Algebra</h1>"))
@@ -127,7 +129,7 @@ describe "generated mounts and the authored tree" do
     Marqraft.Scaffold.create(root, "basic").try
     Marqraft.Store.write(root, "reference/prelude/0.4/list.md", "# List\n").try
     withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true}]").try
-    Marqraft.Project.createPage(root, "Notes", "/notes/", "page", "").try
+    Marqraft.Pages.createPage(root, "Notes", "/notes/", "page", "").try
     assert(Marqraft.Project.load(root).ok?)
     assert(!FS.File.read(root + "/.marqraft/navigation.json").try.contains?("mount-"))
   end

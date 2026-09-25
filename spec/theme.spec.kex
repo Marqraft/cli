@@ -12,8 +12,8 @@ describe "theme selection" do
     assert(homeHtml.contains?("--marq-accent:#b52a35;"))
     assert(!homeHtml.contains?("marqraft-content"))
     let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
-    let steps = Marqraft.Project.createPage(root, "First steps", "/tutorial/first-steps/", "page", tutorial.id).try
-    Marqraft.Project.setDraft(root, steps.id, false).try
+    let steps = Marqraft.Pages.createPage(root, "First steps", "/tutorial/first-steps/", "page", tutorial.id).try
+    Marqraft.Pages.setDraft(root, steps.id, false).try
     let html = Marqraft.Theme.render(Marqraft.Project.load(root).try, tutorial, false).try
     assert(html.contains?("<a href=\"/tutorial/\" aria-current=\"page\">"))
     assert(html.contains?("rel=\"next\" href=\"/tutorial/first-steps/\""))
@@ -24,15 +24,14 @@ describe "theme selection" do
     Marqraft.Scaffold.create(root, "book").try
     let site = Marqraft.Project.load(root).try
     let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
-    let child = Marqraft.Project.createPage(root, "Variables", "/tutorial/variables/", "page", tutorial.id).try
+    let child = Marqraft.Pages.createPage(root, "Variables", "/tutorial/variables/", "page", tutorial.id).try
     let reloaded = Marqraft.Project.load(root).try
-    let nested = Marqraft.Data.list(Marqraft.Data.object(reloaded.navigation.last.try).try.get("children").or([])).try
-    assert(Marqraft.Data.text(nested.first.try, "id", "") == child.id)
+    assert(reloaded.navigation.last.try.children.first.try.id == child.id)
     assert(FS.File.read(root + "/content/tutorial/variables/index.md").try.contains?("## Overview"))
     let page = reloaded.pages.find { |item| item.id == tutorial.id }.try
     assert(!Marqraft.Theme.render(reloaded, page, false).try.contains?("/tutorial/variables/"))
     assert(Marqraft.Theme.render(reloaded, page, true).try.contains?("/tutorial/variables/"))
-    assert(!Marqraft.Project.createPage(root, "Orphan", "/orphan/", "page", "missing").ok?)
+    assert(!Marqraft.Pages.createPage(root, "Orphan", "/orphan/", "page", "missing").ok?)
   end
   it "ejects the built-in theme into the project and switches to it" do
     let root = "${FS.Directory.temporary}/marqraft-eject-${Marqraft.Store.identifier}"

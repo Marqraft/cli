@@ -55,7 +55,9 @@ try {
   };
   await themed();
   assert(await page.locator('.site-navigation').getByRole('button', { name: 'New page' }).isVisible(), 'new page button sits under the page list');
-  assert.equal(await page.locator('.site-navigation a[aria-current=page]').textContent(), 'Introduction');
+  // The home page is not in the page list; the tutorial collection is.
+  assert.equal(await page.locator('.site-navigation a[aria-current=page]').count(), 0);
+  assert.equal(await page.locator('.site-navigation a', { hasText: 'Getting started' }).count(), 1);
 
   step('typing survives autosave with undo and focus intact');
   await caretToEnd(heading); await page.keyboard.type(' gate');
@@ -148,7 +150,8 @@ try {
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.waitForURL(`${base}/tutorial/installing/`); await ready(page);
   const navigation = JSON.parse(await readFile(site + '/.marqraft/navigation.json', 'utf8'));
-  assert.equal(navigation[1].children.length, 1, 'subpage is nested under Getting started');
+  // The home page is not in navigation.json, so Getting started is the first entry.
+  assert.equal(navigation[0].children.length, 1, 'subpage is nested under Getting started');
 
   step('publishing and reordering keep URLs stable');
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
@@ -157,7 +160,7 @@ try {
   await page.locator('.site-navigation a', { hasText: 'Variables & Types' }).hover();
   await page.getByRole('button', { name: 'Variables & Types options' }).click();
   await page.getByRole('menuitem', { name: 'Move up' }).click();
-  await page.waitForFunction(() => document.querySelectorAll('.site-navigation > div > ul > li > .marq-nav-row a')[1]?.textContent?.startsWith('Variables'));
+  await page.waitForFunction(() => document.querySelectorAll('.site-navigation > div > ul > li > .marq-nav-row a')[0]?.textContent?.startsWith('Variables'));
   assert.equal(page.url(), `${base}/tutorial/installing/`);
 
   step('clean documents reload external edits in place');

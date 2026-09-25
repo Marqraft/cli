@@ -1,0 +1,149 @@
+module Marqraft.Pages
+
+# Changing authored pages: save, create, publish/unpublish, and copying a
+# collection into its next edition.
+
+using Marqraft.Document, only: [Page]
+using Marqraft.Project, only: [Site, load, page, pageGenerated?, pageId, pagePath, pageTitle]
+using Marqraft.Navigation, only: [NavNode, findNode, generatedIds, home?, homeId, insertChild, renameNode, renamedId, stripGenerated, subtreeIds, saveTree]
+
+foul pageTemplate?(site: Site, template: String) -> Bool do
+  return Marqraft.Document.slug?(template) && FS.File.file?(site.root + "/" + site.themeDir + "/${template}.html.ket")
+end
+
+foul save(root: String, id: String, revision: String, source: String) -> Page or! String do
+  let site = load(root).try
+  let old = page(site, id).try
+  return Error("generated page ${pageTitle(old)} is read-only") if pageGenerated?(old)
+  return Error("conflict: document changed on disk") if old.revision != revision
+  let updated = Marqraft.Document.parse(source, old.file).try
+  return Error("page identity cannot change") if updated.id != id
+  return Error("URL collision: ${pagePath(updated)}") if site.pages.any? { |item| item.id != id && pagePath(item).lowerCase == pagePath(updated).lowerCase }
+  return Error("unknown page template: ${updated.template}") if updated.template != old.template && !pageTemplate?(site, updated.template)
+  # Re-read immediately before replacement; HTTP serializes all local mutations.
+  return Error("conflict: document changed on disk") if Digest.sha256(FS.File.read(root + "/" + old.file).try) != revision
+  Marqraft.Store.write(root, old.file, source).try
+  return Ok(updated)
+end
+
+foul createPage(root: String, title: String, path: String, template: String, parent: String) -> Page or! String do
+  let site = load(root).try
+  return Error("title is required") if title.trim.empty?
+  return Error("invalid URL path: use lowercase segments like /guide/intro/") if !Marqraft.Document.urlPath?(path)
+  return Error("URL collision: ${path} is already used") if site.pages.any? { |item| pagePath(item).lowerCase == path.lowerCase }
+  return Error("unknown page template: ${template}") if !pageTemplate?(site, template)
+  return Error("unknown parent page") if parent != "" && !site.pages.any? { |item| pageId(item) == parent }
+  return Error("cannot nest a page under a generated page") if parent != "" && site.pages.any? { |item| pageId(item) == parent && pageGenerated?(item) }
+  return Error("the home page has no subpages: add pages to a collection") if parent != "" && parent == homeId(site.pages)
+  return Error("the home page is not inside a collection") if path == "/" && parent != ""
+  # A site-level starter overrides the theme's, so switching themes keeps it.
+  let override = FS.File.read(Marqraft.Store.safePath(root, ".marqraft/templates/${template}.md").try)
+  let starter = FS.File.read(Marqraft.Store.safePath(root, site.themeDir + "/starters/${template}.md").try)
+  let body = override.or(starter.or(""))
+  let file = path == "/" then "content/index.md" else "content${path}index.md"
+  let destination = Marqraft.Store.safePath(root, file).try
+  return Error("destination already exists: ${file}") if FS.File.file?(destination) || FS.Directory.directory?(destination)
+  let source = Marqraft.Document.create(Marqraft.Store.identifier, title, path, template, body)
+  let created = Marqraft.Document.parse(source, file).try
+  Marqraft.Store.write(root, file, source).try
+  # Unlisted pages remain available in the authoring sidebar if navigation persistence fails.
+  let node = NavNode { id: created.id, children: [] }
+  # Only the authored tree is persisted: a rendered mount's nodes live in
+  # site.navigation too, and written back they would name pages
+  # .marqraft/navigation.json cannot resolve on the next load.
+  let authoredTree = stripGenerated(site.navigation, generatedIds(site))
+  let nav = if home?(created)
+    authoredTree
+  elif parent == ""
+    authoredTree + [node]
+  else
+    insertChild(authoredTree, parent, node)
+  end
+  saveTree(root, nav, homeId(site.pages)).try
+  return Ok(created)
+end
+
+# Copies the pages under `from` (a page path such as /guide/0.4/) to `to`,
+# with fresh ids, as a new top-level entry right after the original — the
+# way a versioned book cuts its next edition. Every page of the subtree must
+# live under `from`; links inside the copy that pointed into `from` point
+# into `to`. `unlist` hides the original from the collections menu (it is
+# still built and linkable).
+foul copyCollection(root: String, from: String, to: String, title: String, unlist: Bool) -> Page or! String do
+  let site = load(root).try
+  return Error("invalid URL path: ${to}") if !Marqraft.Document.urlPath?(to)
+  return Error("the home page is not a collection") if from == "/" || to == "/"
+  return Error("${to} is inside ${from}") if to.startsWith?(from)
+  let source = site.pages.find { |item| pagePath(item) == from && !item.generated? }
+  return Error("no page at ${from}") if !source.set?
+  let sourceId = source.try.id
+  let node = findNode(stripGenerated(site.navigation, generatedIds(site)), sourceId)
+  return Error("${from} is not in the navigation") if !node.set?
+  let ids = subtreeIds(node.try)
+  let members = ids.map { |id| page(site, id).try }
+  let outside = members.map { |item| Marqraft.Theme.pathOf(item) }.reject { |path| path.startsWith?(from) }
+  return Error("${outside.first.or("")} is not under ${from}; only a subtree under one path can be copied") if !outside.empty?
+  let renamed = ids.map { |id| (id, Marqraft.Store.identifier) }
+  let copies = members.map { |item| copiedPage(item, from, to, renamed, title, item.id == sourceId) }
+  let taken = site.pages.map { |item| Marqraft.Theme.pathOf(item).lowerCase }
+  let clashes = copies.flatMap do |pair|
+    let (path, _) = pair
+    taken.contains?(path.lowerCase) then [path] else []
+  end
+  return Error("URL collision: ${clashes.first.or("")} is already used") if !clashes.empty?
+  copies.each do |pair|
+    let (path, text) = pair
+    let file = path == "/" then "content/index.md" else "content${path}index.md"
+    return Error("destination already exists: ${file}") if FS.File.file?(root + "/" + file)
+    Marqraft.Store.write(root, file, text).try
+  end
+  let copiedNode = renameNode(node.try, renamed)
+  let authoredTree = stripGenerated(site.navigation, generatedIds(site))
+  saveTree(root, withCopy(authoredTree, sourceId, copiedNode, unlist), homeId(site.pages)).try
+  let copied = load(root).try
+  return page(copied, renamedId(renamed, sourceId))
+end
+
+# The top level with the copy right after its original, which `unlist`
+# hides from the collections menu.
+let withCopy(nodes: [NavNode], sourceId: String, copy: NavNode, unlist: Bool) -> [NavNode] do
+  return [] if nodes.empty?
+  let node = nodes.first.try
+  let rest = withCopy(nodes.drop(1), sourceId, copy, unlist)
+  return node.id == sourceId then [NavNode { ...node, listed?: !unlist && node.listed? }, copy] + rest else [node] + rest
+end
+
+# (new path, new source) for one page of the copied subtree.
+let copiedPage(item: Page, from: String, to: String, renamed: [(String, String)], title: String, top: Bool) -> (String, String) do
+  let path = to + pagePath(item).drop(from.count)
+  let lines = item.source.split("\n")
+  let closing = lines.drop(1).takeWhile { |line| line.trim != "---" }.count + 1
+  let front = lines.take(closing).map do |line|
+    if line.startsWith?("id:")
+      "id: ${JSON.stringify(renamedId(renamed, item.id))}"
+    elif line.startsWith?("path:")
+      "path: ${JSON.stringify(path)}"
+    elif line.startsWith?("title:") && top && !title.empty?
+      "title: ${JSON.stringify(title)}"
+    else
+      line
+    end
+  end
+  let body = lines.drop(closing).join("\n").replace("](${from}", "](${to}").replace("href=\"${from}", "href=\"${to}")
+  return (path, (front + [body]).join("\n"))
+end
+
+# Publishes or unpublishes any page, such as a collection, from wherever it is
+# listed. Only the draft line changes, so an editor open on that page sees an
+# ordinary external change.
+foul setDraft(root: String, id: String, draft?: Bool) -> Page or! String do
+  let site = load(root).try
+  let old = page(site, id).try
+  return Error("generated page ${pageTitle(old)} is read-only") if pageGenerated?(old)
+  let source = Marqraft.Document.withDraft(old.source, draft?)
+  let updated = Marqraft.Document.parse(source, old.file).try
+  return Error("could not change the draft state of ${old.title}") if updated.draft? != draft?
+  return Ok(updated) if source == old.source
+  Marqraft.Store.write(root, old.file, source).try
+  return Ok(updated)
+end

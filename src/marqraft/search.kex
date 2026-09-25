@@ -14,8 +14,8 @@ let indexPath(site: Site) -> String = Marqraft.Data.text(site.config, "search", 
 foul validate(site: Site) -> Void or! String do
   let url = indexPath(site)
   return Ok(()) if url.empty?
-  return Error("search must be a file path such as /search.json") if !Marqraft.Project.filePath?(url)
-  let taken = site.mounts.any? { |mount| url.startsWith?(Marqraft.Data.text(mount, "path", "")) || Marqraft.Data.text(mount, "path", "") == url }
+  return Error("search must be a file path such as /search.json") if !Marqraft.Mounts.filePath?(url)
+  let taken = site.mounts.any? { |mount| url.startsWith?(mount.url) }
   return Error("search index collides with a mount: ${url}") if taken
   return Ok(())
 end
@@ -51,8 +51,7 @@ foul pageEntries(site: Site, page: Page, html: String) -> [Any] do
 end
 
 let collectionTitle(site: Site, page: Page) -> String do
-  let node = site.navigation.find { |item| Marqraft.Theme.containsPage?(item, page.id) }.or({})
-  let id = Marqraft.Data.text(node, "id", "")
+  let id = Marqraft.Navigation.collectionOf(site.navigation, page.id).map { |node| node.id }.or("")
   return "" if id.empty? || id == page.id
   match site.pages.find { |item| item.id == id } do
     Just(item) => Marqraft.Theme.titleOf(item)

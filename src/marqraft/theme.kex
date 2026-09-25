@@ -2,6 +2,7 @@ module Marqraft.Theme
 
 using Marqraft.Project, only: [Site]
 using Marqraft.Document, only: [Page]
+using Marqraft.Navigation, only: [NavNode]
 
 # Resolves the theme a site selects to a project-relative directory:
 #
@@ -76,11 +77,11 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
   let title = authoring? then "<h1 data-marq-title>${Marqraft.Content.escape(page.title)}</h1>" else "<h1>${Marqraft.Content.escape(page.title)}</h1>"
   let content = authoring? then "<div data-marq-body>${body}</div>" else body
   let settings = Marqraft.Data.object(site.config.get("settings").or({})).try
-  let links = navigation(site, Marqraft.Project.visible(site.navigation, page.id), authoring?, page.id)
+  let links = navigation(site, Marqraft.Navigation.visible(site.navigation, page.id), authoring?, page.id)
   # A collection is a top-level navigation entry; its nested pages are its members.
-  let collectionNodes = site.navigation.filter { |node| containsPage?(node, page.id) }
-  let collectionNode = collectionNodes.first.or({})
-  let collectionId = Marqraft.Data.text(collectionNode, "id", "")
+  let collectionNode = Marqraft.Navigation.collectionOf(site.navigation, page.id)
+  let collectionNodes = collectionNode.set? then [collectionNode.try] else []
+  let collectionId = collectionNodes.map { |node| node.id }.first.or("")
   let collectionPage = site.pages.find { |item| item.id == collectionId }
   let collectionTitle = match collectionPage do
     Just(item) => titleOf(item)
@@ -91,8 +92,8 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     None => "/"
   end
   let collections = collectionsHtml(site, page.id, authoring?)
-  let members = navigation(site, childrenOf(collectionNode), authoring?, page.id)
-  let menus = menuContext(site, page, Marqraft.Project.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
+  let members = navigation(site, collectionNodes.flatMap { |node| node.children }, authoring?, page.id)
+  let menus = menuContext(site, page, Marqraft.Menus.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
   let base = {
     "title": page.title, "description": page.description, "path": page.path,
     "siteTitle": Marqraft.Data.text(site.config, "title", "My site"),
@@ -102,13 +103,13 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "navigation:collections": authoring? then "<div data-marq-navigation data-marq-scope=\"collections\">${collections}</div>" else collections,
     "navigation:collection": authoring? then "<div data-marq-navigation data-marq-scope=\"collection\" data-marq-collection=\"${Marqraft.Content.escape(collectionId)}\">${members}</div>" else members,
     "collectionId": collectionId, "collectionTitle": collectionTitle, "collectionPath": collectionPath,
-    "isHome": Marqraft.Project.home?(page),
+    "isHome": Marqraft.Navigation.home?(page),
     "searchIndex": Marqraft.Search.indexPath(site),
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
     "css": stylesheet(site, settings), "authoring": authoring?,
     "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/",
-    "mounts": site.mounts,
+    "mounts": site.mounts.map { |mount| Marqraft.Mounts.describe(mount) },
     "page": Marqraft.Data.object(Marqraft.Data.decode(page.data).or({})).or({})
   }
   let context = base.merge(menus)
@@ -238,12 +239,10 @@ let color?(text: String) -> Bool do
   return text.startsWith?("#") && [4, 7].contains?(text.count) && text.drop(1).chars.all? { |c| "0123456789abcdefABCDEF".contains?(c.string) }
 end
 
-foul navigation(site: Site, nodes: [Any], authoring?: Bool, current: String) -> String do
+foul navigation(site: Site, nodes: [NavNode], authoring?: Bool, current: String) -> String do
   let items = nodes.map do |node|
-    let id = Marqraft.Data.text(node, "id", "")
-    let children = Marqraft.Data.list(Marqraft.Data.object(node).or({}).get("children").or([])).or([])
-    let nested = navigation(site, children, authoring?, current)
-    match Marqraft.Project.page(site, id) do
+    let nested = navigation(site, node.children, authoring?, current)
+    match Marqraft.Project.page(site, node.id) do
       Error(_) => nested
       Ok(page) => do
         if page.draft? && !authoring?
@@ -264,42 +263,31 @@ end
 let titleOf(page: Page) -> String = page.title
 let pathOf(page: Page) -> String = page.path
 
-let childrenOf(node: Any) -> [Any] do
-  return Marqraft.Data.list(Marqraft.Data.object(node).or({}).get("children").or([])).or([])
-end
-
-let containsPage?(node: Any, id: String) -> Bool do
-  return Marqraft.Data.text(node, "id", "") == id || childrenOf(node).any? { |child| containsPage?(child, id) }
-end
-
 # The top-level navigation entries: one link per collection. The collection
 # holding the current page is marked aria-current="true", the page itself "page".
 foul collectionsHtml(site: Site, current: String, authoring?: Bool) -> String do
   # An unlisted collection (an older edition) is left out, unless the
   # reader is inside it.
-  let shown: [Any] = Marqraft.Project.visible(site.navigation, current)
-  let items = shown.map do |node|
-    let id = Marqraft.Data.text(node, "id", "")
-    match Marqraft.Project.page(site, id) do
-      Error(_) => ""
-      Ok(page) => do
-        if page.draft? && !authoring?
-          ""
-        else
-          let active = if page.id == current
-            " aria-current=\"page\""
-          elif containsPage?(node, current)
-            " aria-current=\"true\""
-          else
-            ""
-          end
-          let marker = page.draft? then " <small class=\"marq-draft\">Draft</small>" else ""
-          "<li><a href=\"${Marqraft.Content.escape(page.path)}\"${active}>${Marqraft.Content.escape(page.title)}${marker}</a></li>"
-        end
-      end
-    end
-  end.join("")
+  let items = Marqraft.Navigation.visible(site.navigation, current).map { |node| collectionItem(site, node, current, authoring?) }.join("")
   return items.empty? then "" else "<ul>${items}</ul>"
+end
+
+foul collectionItem(site: Site, node: NavNode, current: String, authoring?: Bool) -> String do
+  match Marqraft.Project.page(site, node.id) do
+    Error(_) => return ""
+    Ok(page) => do
+      return "" if page.draft? && !authoring?
+      let active = if page.id == current
+        " aria-current=\"page\""
+      elif Marqraft.Navigation.containsPage?(node, current)
+        " aria-current=\"true\""
+      else
+        ""
+      end
+      let marker = page.draft? then " <small class=\"marq-draft\">Draft</small>" else ""
+      return "<li><a href=\"${Marqraft.Content.escape(page.path)}\"${active}>${Marqraft.Content.escape(page.title)}${marker}</a></li>"
+    end
+  end
 end
 
 foul menuContext(site: Site, page: Page, ids: [String], authoring?: Bool, values: {String: Any}) -> {String: Any} do
@@ -310,7 +298,7 @@ end
 
 # A theme menu as a list of links. Links to drafts only appear while authoring.
 foul menuHtml(site: Site, current: Page, id: String, authoring?: Bool) -> String do
-  let items = Marqraft.Project.menuItems(site, id).map do |item|
+  let items = Marqraft.Menus.menuItems(site, id).map do |item|
     let label = Marqraft.Content.escape(Marqraft.Data.text(item, "label", ""))
     let pageId = Marqraft.Data.text(item, "page", "")
     let url = Marqraft.Data.text(item, "url", "")
@@ -338,13 +326,11 @@ end
 
 # Reading order follows the navigation tree, depth first; published output
 # skips drafts so the pager never links to a missing page.
-foul sequence(site: Site, nodes: [Any], authoring?: Bool) -> [Page] do
+foul sequence(site: Site, nodes: [NavNode], authoring?: Bool) -> [Page] do
   return [] if nodes.empty?
-  let node = nodes.first.or({})
-  let id = Marqraft.Data.text(node, "id", "")
-  let children = Marqraft.Data.list(Marqraft.Data.object(node).or({}).get("children").or([])).or([])
-  let rest = sequence(site, children, authoring?) + sequence(site, nodes.drop(1), authoring?)
-  match Marqraft.Project.page(site, id) do
+  let node = nodes.first.try
+  let rest = sequence(site, node.children, authoring?) + sequence(site, nodes.drop(1), authoring?)
+  match Marqraft.Project.page(site, node.id) do
     Ok(page) => (page.draft? && !authoring?) then rest else [page] + rest
     Error(_) => rest
   end
@@ -357,7 +343,7 @@ let neighbours(order: [Page], id: String, previous: Page?) -> (Page?, Page?) do
   return neighbours(order.drop(1), id, Just(head))
 end
 
-foul pager(site: Site, page: Page, authoring?: Bool, nodes: [Any]) -> String do
+foul pager(site: Site, page: Page, authoring?: Bool, nodes: [NavNode]) -> String do
   let (previous, following) = neighbours(sequence(site, nodes, authoring?), page.id, None)
   let before = match previous do
     Just(item) => "<a class=\"marq-pager-previous\" rel=\"prev\" href=\"${Marqraft.Content.escape(item.path)}\"><small>Previous</small><span>${Marqraft.Content.escape(item.title)}</span></a>"

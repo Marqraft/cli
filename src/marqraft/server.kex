@@ -1,6 +1,7 @@
 module Marqraft.Server
 
 using Marqraft.Document, only: [Page]
+using Marqraft.Project, only: [Site]
 using URI
 using Rodolfo
 using Marqraft.API, only: [Workspace]
@@ -45,29 +46,10 @@ foul start(directory: String, port: Integer) -> Void or! String do
       Response.Text { body: Kex.embed("../../assets/marqraft-author.css"), headers: noCache.add("Content-Type", "text/css; charset=utf-8").try }
     end
     get "/" do |env|
-      if allowedHost?(env, port)
-        Marqraft.Server.renderPage(root, "/", token)
-      else
-        textReply(403, "forbidden host")
-      end
+      allowedHost?(env, port) then Marqraft.Server.serve(root, "", token) else textReply(403, "forbidden host")
     end
     get "/*path" do |env|
-      if allowedHost?(env, port)
-        let path = env.param("path").or("")
-        if path.startsWith?("_theme/")
-          Marqraft.Server.themeAsset(root, path.drop(7))
-        elif Marqraft.Server.searchPath?(root, path)
-          Marqraft.Server.searchIndex(root)
-        elif Marqraft.Server.publicFile?(root, path)
-          asset(root, path)
-        elif Marqraft.Server.mountedPath(root, path).ok?
-          mountAsset(root, path)
-        else
-          Marqraft.Server.renderPage(root, "/" + path, token)
-        end
-      else
-        textReply(403, "forbidden host")
-      end
+      allowedHost?(env, port) then Marqraft.Server.serve(root, env.param("path").or(""), token) else textReply(403, "forbidden host")
     end
   end
   IO.printLine("Marqraft: http://localhost:${port}")
@@ -105,104 +87,32 @@ foul jsonResult(result: {String: Any} or! String) -> Rodolfo.Response.Reply do
   end
 end
 
-foul renderPage(root: String, path: String, token: String) -> Rodolfo.Response.Reply do
+# One request, answered from the site as it is on disk now, so every edit
+# shows on the next reload: a page (with the authoring UI), the search
+# index, or a file.
+foul serve(root: String, relative: String, token: String) -> Rodolfo.Response.Reply do
   let site = Marqraft.Project.load(root).try
-  let found = site.pages.find { |item| item.path == path }
-  return Response.Text { status: 404, body: "Page not found" } if !found.set?
-  let page = found.try
-  # Generated pages render view-only: no editing bindings ever attach to them.
+  match Marqraft.Routes.find(site, relative) do
+    None => return textReply(404, "Not found")
+    Just(output) => do
+      return renderPage(site, Marqraft.Project.page(site, output.pageId).try, token) if output.kind == "page"
+      return jsonReply(200, Marqraft.Search.index(site).try) if output.kind == "search"
+      let path = Marqraft.Store.safePath(root, output.source).try
+      return Response.Raw { body: FS.File.readBytes(path).try, contentType: Marqraft.Theme.mimeType(path), headers: noCache }
+    end
+  end
+rescue |error|
+  return textReply(500, "${error}")
+end
+
+# Generated pages render view-only: no editing bindings ever attach to them.
+foul renderPage(site: Site, page: Page, token: String) -> Rodolfo.Response.Reply do
   let html = Marqraft.Theme.render(site, page, !page.generated?).try
   let generated = page.generated? then "<meta name=\"marq-generated\" content=\"${Marqraft.Content.escape(page.title)}\">" else ""
   let author = "<meta name=\"marq-token\" content=\"${token}\"><meta name=\"marq-page\" content=\"${Marqraft.Content.escape(page.id)}\">${generated}<link rel=\"stylesheet\" href=\"/__marqraft/editor.css\"><div id=\"marq-chrome\"></div><script src=\"/__marqraft/editor.js\" defer></script>"
   return Response.HTML { body: html.replace("</body>", author + "</body>"), headers: noCache }
-rescue |error|
-  return Response.Text { status: 500, body: "${error}", headers: noCache }
-end
-
-# The site's search index (marqraft.jsonc "search"), built on each request
-# so it follows every edit.
-foul searchPath?(root: String, relative: String) -> Bool do
-  match Marqraft.Project.load(root) do
-    Ok(site) => Marqraft.Search.indexPath(site) == "/" + relative
-    Error(_) => false
-  end
-end
-
-foul searchIndex(root: String) -> Rodolfo.Response.Reply do
-  let site = Marqraft.Project.load(root).try
-  return jsonReply(200, Marqraft.Search.index(site).try)
-rescue |error|
-  return Response.Text { status: 500, body: "${error}", headers: noCache }
-end
-
-foul asset(root: String, relative: String) -> Rodolfo.Response.Reply do
-  let path = Marqraft.Store.safePath(root, "public/" + relative).try
-  return Response.Raw { body: FS.File.readBytes(path).try, contentType: Marqraft.Theme.mimeType(path), headers: noCache }
-rescue |error|
-  return Response.Text { status: 404, body: "asset not found" }
 end
 
 let textReply(status: Integer, body: String) -> Rodolfo.Response.Reply = Response.Text { status, body, headers: noCache }
 
 let jsonReply(status: Integer, body: String) -> Rodolfo.Response.Reply = Response.JSON { status, body, headers: noCache }
-
-foul publicFile?(root: String, relative: String) -> Bool do
-  return false if relative.empty? || relative.endsWith?("/")
-  match Marqraft.Store.safePath(root, "public/" + relative) do
-    Ok(path) => FS.File.file?(path)
-    Error(_) => false
-  end
-end
-
-# A request path inside a mounted directory, resolved to its project file.
-# Mounts are generated output: served verbatim, never edited or bound.
-foul mountedPath(root: String, relative: String) -> String or! String do
-  let site = Marqraft.Project.load(root).try
-  let found = site.mounts.find do |mount|
-    let single = Marqraft.Data.text(mount, "file", "")
-    if single != ""
-      relative == Marqraft.Data.text(mount, "path", "").drop(1)
-    else
-      let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
-      relative == prefix.take(prefix.count - 1) || relative.startsWith?(prefix)
-    end
-  end
-  match found do
-    None => Error("no mount serves ${relative}")
-    Just(mount) => do
-      let single = Marqraft.Data.text(mount, "file", "")
-      if single != ""
-        let singlePath = Marqraft.Store.safePath(root, single).try
-        return Error("mounted file not found") if !FS.File.file?(singlePath)
-        return Ok(singlePath)
-      end
-      let prefix = Marqraft.Data.text(mount, "path", "").drop(1)
-      let dir = Marqraft.Data.text(mount, "dir", "")
-      let rest = relative.drop(prefix.count)
-      let file = if rest == "" || rest.endsWith?("/")
-        rest + "index.html"
-      else
-        rest
-      end
-      return Error("generated source is rendered, not served") if Marqraft.Project.rawHidden?(site, mount, dir + "/" + file)
-      let path = Marqraft.Store.safePath(root, dir + "/" + file).try
-      return Error("mounted file not found") if !FS.File.file?(path)
-      return Ok(path)
-    end
-  end
-end
-
-foul mountAsset(root: String, relative: String) -> Rodolfo.Response.Reply do
-  let path = Marqraft.Server.mountedPath(root, relative).try
-  return Response.Raw { body: FS.File.readBytes(path).try, contentType: Marqraft.Theme.mimeType(path), headers: noCache }
-rescue |error|
-  return Response.Text { status: 404, body: "mounted file not found" }
-end
-
-foul themeAsset(root: String, relative: String) -> Rodolfo.Response.Reply do
-  let site = Marqraft.Project.load(root).try
-  let path = Marqraft.Store.safePath(root, site.themeDir + "/assets/" + relative).try
-  return Response.Raw { body: FS.File.readBytes(path).try, contentType: Marqraft.Theme.mimeType(path), headers: noCache }
-rescue |error|
-  return Response.Text { status: 404, body: "theme asset not found" }
-end

@@ -8,7 +8,7 @@ import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extensions';
 import { X } from 'lucide-react';
-import { MarqAlert, MarqCode, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
+import { MarqAlert, MarqCode, MarqTable, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
 import { KexHighlight } from './highlight';
 import { themeNodes } from './theme-nodes';
 import { api, pageID, upload } from './api';
@@ -57,7 +57,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     CoEditing.configure({ session }),
     // Markdown images are inline: as a block node, an image inside a rendered <p> was split
     // out on parse, leaving an empty paragraph that still saved the image's source.
-    TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,
+    TableKit.configure({ table: false }), MarqTable, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,
     Placeholder.configure({ placeholder: 'Write something, or type / for blocks' }),
     ...themeNodes(initialProject.theme.blocks),
   ], []);

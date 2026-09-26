@@ -20,8 +20,9 @@ export type Task =
   | { task: 'continue'; before: string }
   | { task: 'complete'; before: string; after: string }
   | { task: 'chat'; messages: ChatMessage[]; outline: string; blocks: number };
-export type Edit = { op: 'replace' | 'insert_after' | 'delete'; block: number; markdown?: string; html: string };
-export type Answer = { markdown: string; html: string };
+export type Edit = { op: 'replace' | 'insert_after' | 'delete'; block: number; markdown?: string; html: string; preview?: string };
+/** `html` goes into the editor; `preview` is how a published page shows it, code highlighted. */
+export type Answer = { markdown: string; html: string; preview?: string };
 
 export const assist = <T = Answer>(task: Task, signal?: AbortSignal) => api<T>('assist', { ...task, title: pageTitle() }, signal);
 
@@ -49,6 +50,26 @@ export function blocksBefore(doc: Node, index: number): string {
 
 export const startOf = (doc: Node, index: number) => { let pos = 0; for (let i = 0; i < index; i++) pos += doc.child(i).nodeSize; return pos; };
 
+const unsafe = 'script, style, iframe, frame, object, embed, link, meta, base, form, noscript, template';
+
+/**
+ * Published HTML for a preview, rendered from the model's Markdown on the
+ * server: parsed inert, without scripts, frames, event handlers or script
+ * links, since the model's text is not trusted.
+ */
+export function safePreview(html: string): DocumentFragment {
+  const body = new window.DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body;
+  body.querySelectorAll(unsafe).forEach(element => element.remove());
+  body.querySelectorAll('*').forEach(element => {
+    for (const { name, value } of [...element.attributes]) {
+      if (name.startsWith('on') || (['href', 'src', 'action', 'formaction', 'xlink:href'].includes(name) && /^\s*(javascript|data|vbscript):/i.test(value))) element.removeAttribute(name);
+    }
+  });
+  const fragment = document.createDocumentFragment();
+  fragment.append(...body.childNodes);
+  return fragment;
+}
+
 /** Server-rendered authoring HTML as editor content, keeping each block's source. */
 export function contentFrom(editor: Editor, html: string): Fragment {
   // An inert document: nothing in the HTML runs or loads while it is parsed.
@@ -72,6 +93,8 @@ export type Proposal = {
   index: number;
   state: 'loading' | 'ready' | 'failed';
   html?: string;
+  /** Published HTML to show; the editor's own rendering of `html` when there is none. */
+  preview?: string;
   error?: string;
   /** Asks again, about the block as it is now. */
   retry?: (anchor: Node, index: number) => void;
@@ -130,7 +153,7 @@ export function proposeForBlock(label: string, op: 'replace' | 'insert_after', a
   const ask = (current: Node, at: number) => {
     putProposal({ id, label, op, anchor: current, index: at, state: 'loading', source: 'block', retry: ask });
     assist(task(current, at))
-      .then(answer => updateProposal(id, { state: 'ready', html: answer.html }))
+      .then(answer => updateProposal(id, { state: 'ready', html: answer.html, preview: answer.preview }))
       .catch(error => updateProposal(id, { state: 'failed', error: error.message }));
   };
   ask(anchor, index);
@@ -138,6 +161,7 @@ export function proposeForBlock(label: string, op: 'replace' | 'insert_after', a
 
 /** The quick instructions a block's menu offers. */
 export const blockActions: { id: string; label: string; instruction: string }[] = [
+  { id: 'rephrase', label: 'Rephrase', instruction: 'Rephrase it in different words, keeping the meaning, length and tone.' },
   { id: 'improve', label: 'Improve writing', instruction: 'Improve the writing: clearer, tighter and more readable, keeping the meaning.' },
   { id: 'fix', label: 'Fix spelling & grammar', instruction: 'Fix spelling, grammar and punctuation only; change nothing else.' },
   { id: 'shorten', label: 'Make shorter', instruction: 'Make it about half as long, keeping what matters.' },

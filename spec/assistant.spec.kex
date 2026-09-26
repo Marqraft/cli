@@ -6,6 +6,9 @@ describe "the writing assistant" do
     let answer = Marqraft.Assistant.ask(root, [], { "task": "rewrite", "instruction": "Shorten it", "markdown": "A long, long sentence.", "title": "Intro" }).try
     assert(Marqraft.Data.text(answer, "markdown", "") == "Short **and** clear.")
     assert(Marqraft.Data.text(answer, "html", "").contains?("<strong>and</strong>"))
+    # The preview is the published rendering: no editor source attributes.
+    assert(Marqraft.Data.text(answer, "preview", "").contains?("<strong>and</strong>"))
+    assert(!Marqraft.Data.text(answer, "preview", "").contains?("data-marq-original"))
     let arguments = FS.File.read(dir + "/args.1").try.lines
     assert(arguments.contains?("--safe-mode") && arguments.contains?("--strict-mcp-config") && arguments.contains?("sonnet"))
     let tools = arguments.findIndex { |argument| argument == "--tools" }.try

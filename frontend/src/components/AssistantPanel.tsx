@@ -34,7 +34,7 @@ function EditCard({ editor, proposal }: { editor: Editor; proposal: Proposal }) 
       </button>
       {proposal.op === 'delete'
         ? <div className="mq:text-xs mq:text-muted-foreground mq:line-through">{proposal.anchor.textContent.slice(0, 200)}</div>
-        : !stale && <div className="mq:max-h-60 mq:overflow-auto mq:rounded mq:border mq:border-dashed mq:border-border mq:px-2"><ProposalPreview editor={editor} html={proposal.html ?? ''} /></div>}
+        : !stale && <div className="mq:max-h-60 mq:overflow-auto mq:rounded mq:border mq:border-dashed mq:border-border mq:px-2"><ProposalPreview editor={editor} html={proposal.html ?? ''} preview={proposal.preview} /></div>}
       <ProposalActions editor={editor} proposal={proposal} stale={stale} />
     </div>
   );
@@ -69,7 +69,7 @@ export function AssistantPanel({ editor, open, setOpen }: { editor: Editor; open
       const reply = await assist<{ answer: string; edits: Edit[] }>({ task: 'chat', messages, outline: outline(doc), blocks: doc.childCount }, controller.signal);
       const ids = reply.edits.map(edit => {
         const id = crypto.randomUUID(), index = edit.block - 1;
-        putProposal({ id, label: describeEdit(edit), op: edit.op, anchor: doc.child(index), index, state: 'ready', html: edit.html, source: 'chat' });
+        putProposal({ id, label: describeEdit(edit), op: edit.op, anchor: doc.child(index), index, state: 'ready', html: edit.html, preview: edit.preview, source: 'chat' });
         return id;
       });
       setTurns(current => [...current, { role: 'assistant', content: reply.answer || (ids.length ? 'Here are the changes:' : ''), proposals: ids }]);

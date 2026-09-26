@@ -2,12 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
 import type { Node } from '@tiptap/pm/model';
 import { NodeSelection } from '@tiptap/pm/state';
-import { ArrowDown, ArrowUp, Copy, GripVertical, Languages, MessageSquareText, PenLine, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, GripVertical, Languages, MessageSquareText, MoreHorizontal, PenLine, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { blockActions, blockMarkdown, languages, promptToWrite, proposeForBlock, setPrompting, tones } from '../assist';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from './ui/dropdown-menu';
 
-type Hovered = { index: number; top: number; left: number };
+type Hovered = { index: number; top: number; left: number; right: number };
 type Gap = { index: number; top: number; left: number; width: number };
 
 const startOf = (doc: Node, index: number) => { let pos = 0; for (let i = 0; i < index; i++) pos += doc.child(i).nodeSize; return pos; };
@@ -44,6 +44,7 @@ function gapAt(editor: Editor, y: number): Gap | null {
 export function BlockHandle({ editor, assistant }: { editor: Editor; assistant: boolean }) {
   const [hovered, setHovered] = useState<Hovered | null>(null);
   const [menu, setMenu] = useState(false);
+  const [aiMenu, setAiMenu] = useState(false);
   const [gap, setGap] = useState<Gap | null>(null);
   const overHandle = useRef(false);
   // The block being dragged: its index, and the node, to tell if it is still there.
@@ -64,10 +65,10 @@ export function BlockHandle({ editor, assistant }: { editor: Editor; assistant: 
       if (index >= doc.childCount) return;
       const box = element.getBoundingClientRect(), editorBox = dom.getBoundingClientRect();
       clearTimeout(hide);
-      setHovered({ index, top: box.top + window.scrollY, left: editorBox.left + window.scrollX });
+      setHovered({ index, top: box.top + window.scrollY, left: editorBox.left + window.scrollX, right: editorBox.right + window.scrollX });
     };
     // Leaving the editor for the handle itself keeps it.
-    const leave = () => { hide = setTimeout(() => { if (!overHandle.current && !menu && !dragged.current) setHovered(null); }, 250); };
+    const leave = () => { hide = setTimeout(() => { if (!overHandle.current && !menu && !aiMenu && !dragged.current) setHovered(null); }, 250); };
 
     // A block dragged by its handle lands between blocks, never inside one:
     // these run before ProseMirror's own drop handling, which they replace.
@@ -98,7 +99,7 @@ export function BlockHandle({ editor, assistant }: { editor: Editor; assistant: 
       window.removeEventListener('dragend', end);
       clearTimeout(hide);
     };
-  }, [editor, menu]);
+  }, [editor, menu, aiMenu]);
 
   const line = gap && <div className="marq-ui mq:pointer-events-none mq:absolute mq:z-20 mq:h-0.5 mq:rounded-full mq:bg-primary" style={{ top: gap.top - 1, left: gap.left, width: gap.width }} />;
   if (!hovered || !editor.isEditable || hovered.index >= editor.state.doc.childCount) return line;
@@ -115,6 +116,26 @@ export function BlockHandle({ editor, assistant }: { editor: Editor; assistant: 
   const rewrite = (label: string, instruction: string) => proposeForBlock(label, 'replace', node, index, current => ({ task: 'rewrite', instruction, markdown: blockMarkdown(current) }));
   const custom = () => setPrompting({ anchor: node, index, placeholder: 'Tell AI what to do with this block…', submit: instruction => rewrite(instruction, instruction) });
   const write = () => { editor.commands.setTextSelection(pos + 1); promptToWrite(editor); };
+  const aiItems = <>
+    {blockActions.map(action => <DropdownMenuItem key={action.id} onSelect={() => rewrite(action.label, action.instruction)}><Wand2 />{action.label}</DropdownMenuItem>)}
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger><MessageSquareText />Change tone</DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        {tones.map(tone => <DropdownMenuItem key={tone} onSelect={() => rewrite(`${tone} tone`, `Rewrite it in a ${tone.toLowerCase()} tone.`)}>{tone}</DropdownMenuItem>)}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger><Languages />Translate</DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        {languages.map(language => <DropdownMenuItem key={language} onSelect={() => rewrite(`Translate to ${language}`, `Translate it into ${language}, keeping the Markdown formatting.`)}>{language}</DropdownMenuItem>)}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem onSelect={custom}><PenLine />Custom instruction…</DropdownMenuItem>
+  </>;
+  // Prose gets quick AI buttons at its top right; theme blocks and tables keep their own bar there.
+  const prose = assistant && !empty && ['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList'].includes(node.type.name);
+  const quick = (id: string) => { const action = blockActions.find(item => item.id === id)!; rewrite(action.label, action.instruction); };
 
   const dragStart = (event: React.DragEvent) => {
     const selection = NodeSelection.create(editor.state.doc, pos);
@@ -151,23 +172,7 @@ export function BlockHandle({ editor, assistant }: { editor: Editor; assistant: 
             {assistant && !empty && <>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger><Sparkles />Ask AI</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  {blockActions.map(action => <DropdownMenuItem key={action.id} onSelect={() => rewrite(action.label, action.instruction)}><Wand2 />{action.label}</DropdownMenuItem>)}
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger><MessageSquareText />Change tone</DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      {tones.map(tone => <DropdownMenuItem key={tone} onSelect={() => rewrite(`${tone} tone`, `Rewrite it in a ${tone.toLowerCase()} tone.`)}>{tone}</DropdownMenuItem>)}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger><Languages />Translate</DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      {languages.map(language => <DropdownMenuItem key={language} onSelect={() => rewrite(`Translate to ${language}`, `Translate it into ${language}, keeping the Markdown formatting.`)}>{language}</DropdownMenuItem>)}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={custom}><PenLine />Custom instruction…</DropdownMenuItem>
-                </DropdownMenuSubContent>
+                <DropdownMenuSubContent>{aiItems}</DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuSeparator />
             </>}
@@ -179,6 +184,18 @@ export function BlockHandle({ editor, assistant }: { editor: Editor; assistant: 
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {prose && <div data-marq-chrome role="toolbar" aria-label="AI"
+        className="marq-ui marq-authoring-only mq:absolute mq:z-20 mq:flex mq:-translate-x-full mq:-translate-y-full mq:items-center mq:gap-0.5 mq:rounded-md mq:border mq:border-border mq:bg-background mq:p-0.5 mq:shadow-sm"
+        style={{ top: hovered.top - 2, left: hovered.right }}
+        onMouseEnter={() => { overHandle.current = true; }} onMouseLeave={() => { overHandle.current = false; }}>
+        <Button variant="ghost" size="sm" className="mq:h-6 mq:px-1.5 mq:text-xs" onClick={() => quick('rephrase')}><Sparkles />Rephrase</Button>
+        <Button variant="ghost" size="sm" className="mq:h-6 mq:px-1.5 mq:text-xs" onClick={() => quick('shorten')}>Shorter</Button>
+        <Button variant="ghost" size="sm" className="mq:h-6 mq:px-1.5 mq:text-xs" onClick={() => quick('fix')}>Fix</Button>
+        <DropdownMenu open={aiMenu} onOpenChange={open => { setAiMenu(open); if (!open) setHovered(null); }}>
+          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" className="mq:size-6" aria-label="More AI actions"><MoreHorizontal /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">{aiItems}</DropdownMenuContent>
+        </DropdownMenu>
+      </div>}
     </>
   );
 }

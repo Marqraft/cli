@@ -3,7 +3,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { SourceSlices } from './nodes';
-import { anchorIndex, applyProposal, currentProposals, dropProposals, outline, putProposal, blockMarkdown, type Proposal } from './assist';
+import { anchorIndex, applyProposal, currentProposals, dropProposals, outline, putProposal, blockMarkdown, safePreview, type Proposal } from './assist';
 
 const editor = (html: string) => new Editor({ extensions: [StarterKit.configure({ trailingNode: false, undoRedo: false }), SourceSlices], content: html });
 const proposal = (e: Editor, index: number, change: Partial<Proposal>): Proposal =>
@@ -50,5 +50,11 @@ describe('assistant proposals', () => {
     expect(currentProposals().map(item => item.id)).toEqual(['b', 'c']);
     applyProposal(e, currentProposals()[0]);
     expect(currentProposals().map(item => item.id)).toEqual(['c']);
+  });
+
+  it('shows a published preview without anything that runs', () => {
+    const holder = document.createElement('div');
+    holder.append(safePreview('<p onclick="x()">Hi <a href="javascript:alert(1)">there</a></p><script>alert(1)</script><figure class="marq-code"><pre class="code"><code><span class="tok-keyword">let</span></code></pre></figure><iframe src="/"></iframe>'));
+    expect(holder.innerHTML).toBe('<p>Hi <a>there</a></p><figure class="marq-code"><pre class="code"><code><span class="tok-keyword">let</span></code></pre></figure>');
   });
 });

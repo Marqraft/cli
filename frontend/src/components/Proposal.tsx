@@ -2,7 +2,8 @@ import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from 
 import type { Editor } from '@tiptap/core';
 import { DOMSerializer } from '@tiptap/pm/model';
 import { Check, Loader2, RotateCcw, Sparkles, X } from 'lucide-react';
-import { anchorIndex, applyProposal, contentFrom, dropProposal, setPrompting, startOf, usePrompting, useProposals, type Proposal } from '../assist';
+import { anchorIndex, applyProposal, contentFrom, dropProposal, safePreview, setPrompting, startOf, usePrompting, useProposals, type Proposal } from '../assist';
+import { bodyHost } from '../hosts';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -34,16 +35,27 @@ function useTarget(element: HTMLElement | undefined) {
   }, [element]);
 }
 
-/** The proposed content, drawn by the editor's schema: only what the editor itself could hold. */
-export function ProposalPreview({ editor, html }: { editor: Editor; html: string }) {
+/**
+ * The proposed content as the page will show it: the published rendering,
+ * inside an element like the one the theme puts the page body in, so the
+ * theme's prose and code styles apply. Without one, the editor's schema
+ * draws it.
+ */
+export function ProposalPreview({ editor, html, preview }: { editor: Editor; html: string; preview?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const target = ref.current;
     if (!target) return;
-    try { target.replaceChildren(DOMSerializer.fromSchema(editor.schema).serializeFragment(contentFrom(editor, html))); }
-    catch { target.textContent = 'This proposal cannot be shown.'; }
-  }, [editor, html]);
-  return <div ref={ref} className="marq-document marq-ai-preview" />;
+    try {
+      const container = bodyHost?.parentElement;
+      const frame = document.createElement(container && container !== document.body ? container.tagName : 'div');
+      if (container && container !== document.body) frame.className = container.className;
+      frame.classList.add('marq-ai-frame');
+      frame.append(preview ? safePreview(preview) : DOMSerializer.fromSchema(editor.schema).serializeFragment(contentFrom(editor, html)));
+      target.replaceChildren(frame);
+    } catch { target.textContent = 'This proposal cannot be shown.'; }
+  }, [editor, html, preview]);
+  return <div ref={ref} className="marq-ai-preview" />;
 }
 
 /** Accept, retry and discard, for one proposal; `stale` when its block changed since. */
@@ -78,7 +90,7 @@ function ProposalCard({ editor, proposal }: { editor: Editor; proposal: Proposal
       {proposal.state === 'loading' && <div className="mq:text-muted-foreground">Writing…</div>}
       {proposal.state === 'failed' && <div role="alert" className="mq:text-destructive">{proposal.error}</div>}
       {proposal.state === 'ready' && stale && <div className="mq:text-muted-foreground">The block changed since you asked. Try again to rewrite it as it is now.</div>}
-      {proposal.state === 'ready' && !stale && proposal.html && <div className="mq:max-h-96 mq:overflow-auto mq:rounded-md mq:border mq:border-dashed mq:border-border mq:px-3"><ProposalPreview editor={editor} html={proposal.html} /></div>}
+      {proposal.state === 'ready' && !stale && proposal.html && <div className="mq:max-h-96 mq:overflow-auto mq:rounded-md mq:border mq:border-dashed mq:border-border mq:px-3"><ProposalPreview editor={editor} html={proposal.html} preview={proposal.preview} /></div>}
       <ProposalActions editor={editor} proposal={proposal} stale={stale} />
     </div>
   );

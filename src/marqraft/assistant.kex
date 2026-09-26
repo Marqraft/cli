@@ -48,8 +48,9 @@ foul describe -> {String: Any} do
     "providers": all.map { |provider| { "id": provider.id, "name": provider.name, "available": available?(provider) } } }
 end
 
-# One task from the editor, answered: `markdown` and the `html` the editor
-# inserts, or for "chat" an `answer` and the `edits` it suggests, or for
+# One task from the editor, answered: `markdown`, the `html` the editor
+# inserts and a `preview` rendered as a published page shows it (code
+# highlighted), or for "chat" an `answer` and the `edits` it suggests, or for
 # "complete" the `text` to type next.
 foul ask(root: String, blocks: [Any], data: {String: Any}) -> {String: Any} or! String do
   let settings = config
@@ -63,7 +64,7 @@ foul ask(root: String, blocks: [Any], data: {String: Any}) -> {String: Any} or! 
   return chat(root, blocks, provider, request, Marqraft.Data.integer(data, "blocks", 0)) if task == "chat"
   let markdown = clean(unfence(complete(provider, request).try))
   return Error("the assistant gave an empty answer") if markdown == ""
-  return Ok({ "markdown": markdown, "html": Marqraft.Content.render(markdown, true, root, blocks) })
+  return Ok(rendered(markdown, root, blocks).put("markdown", markdown))
 end
 
 foul chat(root: String, blocks: [Any], provider: Provider, request: Request, count: Integer) -> {String: Any} or! String do
@@ -75,9 +76,14 @@ foul chat(root: String, blocks: [Any], provider: Provider, request: Request, cou
   end
   let edits = Marqraft.Data.list(reply.get("edits").or([])).or([]).map do |edit|
     let markdown = Marqraft.Data.text(edit, "markdown", "")
-    Marqraft.Data.object(edit).or({}).put("html", markdown == "" then "" else Marqraft.Content.render(markdown, true, root, blocks))
+    Marqraft.Data.object(edit).or({}).merge(markdown == "" then { "html": "", "preview": "" } else rendered(markdown, root, blocks))
   end
   return Ok({ "answer": Marqraft.Data.text(reply, "answer", ""), "edits": edits })
+end
+
+# Markdown as the editor holds it, and as a reader will see it.
+foul rendered(markdown: String, root: String, blocks: [Any]) -> {String: Any} do
+  return { "html": Marqraft.Content.render(markdown, true, root, blocks), "preview": Marqraft.Content.render(markdown, false, root, blocks) }
 end
 
 # The chat reply, parsed and checked: an answer, and edits that each name a

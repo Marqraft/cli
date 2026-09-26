@@ -1,0 +1,91 @@
+module Marqraft.Live
+
+# `marq dev` keeps the loaded site in memory and tells every open editor
+# when it changes, instead of loading the site from disk for each request
+# and having each editor poll for changes.
+#
+# The site lives in a persistent_term, so every request reads it without
+# copying. The server reloads it after its own authoring actions change
+# files, and when the fingerprint of the project's files changes on disk
+# (an external editor, a generated reference, another browser), and
+# announces each reload to the Listeners over the /__marqraft/live
+# WebSocket.
+
+using Marqraft.Project, only: [Site]
+using Net.HTTP.WebSocket, only: [Connection, Text]
+
+# Open editors, by connection id. A connection whose send fails is dropped.
+record Listeners do
+  sockets : {String: Connection} = {}
+end
+
+serving Listeners do
+  slot join(id: String, socket: Connection) -> Void do
+    new.sockets = @sockets.put(id, socket)
+    return new
+  end
+
+  slot leave(id: String) -> Void do
+    new.sockets = @sockets.delete(id)
+    return new
+  end
+
+  slot broadcast(text: String) -> Void do
+    new.sockets = @sockets.filter { |_, socket| socket.send(Text(text)).ok? }
+    return new
+  end
+end
+
+let siteKey(root: String) -> Any = ("marqraft_site", root)
+
+# The site as last loaded, loading it on first use.
+foul site(root: String) -> Site or! String do
+  let cached = BEAM.persistent_term.get(siteKey(root), :none)
+  return refresh(root) if Type.of(cached).name == "Atom"
+  return Ok(cached)
+end
+
+# Reloads the site from disk and keeps it. A site that fails to load keeps
+# the last good one being served.
+foul refresh(root: String) -> Site or! String do
+  let loaded = Marqraft.Project.load(root).try
+  BEAM.persistent_term.put(siteKey(root), loaded)
+  return Ok(loaded)
+end
+
+let changed -> String = "{\"type\":\"changed\"}"
+
+# A hash of path, modification time and size of the files the site is
+# built from: the config, the authored content and uploads, the navigation
+# and menus and the theme, plus with `mounts?` every mounted directory or
+# file. Mounted output is large and changes only when it is regenerated, so
+# the watcher checks it less often than what authors edit.
+foul fingerprint(root: String, mounts?: Bool) -> String do
+  let config = Marqraft.Data.object(Marqraft.Data.read(root + "/marqraft.jsonc").or({})).or({})
+  let theme = Marqraft.Data.text(config, "theme", "")
+  let declared = Marqraft.Data.list(config.get("mounts").or([])).or([]).map { |mount| Marqraft.Data.text(mount, "dir", "") + Marqraft.Data.text(mount, "file", "") }
+  let mounted = mounts? then declared else []
+  let external = theme.startsWith?("/") || theme.startsWith?("../") then [theme] else []
+  let local = theme.startsWith?("./") then [theme.drop(2)] else []
+  let roots = ["marqraft.jsonc", ".marqraft/navigation.json", ".marqraft/menus.json", "content", "public"] + local + mounted
+  let inside = roots.flatMap { |relative| stamps(root + "/" + relative, relative) }
+  let outside = external.flatMap { |path| stamps(path.startsWith?("/") then path else root + "/" + path, path) }
+  # A hash of (path, mtime, size) for every file: no string per file.
+  return "${BEAM.erlang.phash2(inside + outside)}"
+end
+
+# One stat per file, and a plain directory walk: this runs twice a second
+# over every file of the site, so it skips what Store.tree checks for
+# (symlinks) and asks the file system once per entry.
+foul stamps(path: String, label: String) -> [Any] do
+  let info = BEAM.file.read_file_info(BEAM.erlang.binary_to_list(path))
+  return [] if BEAM.erlang.element(1, info) != :ok
+  let fileInfo = BEAM.erlang.element(2, info)
+  # #file_info{size, type, access, atime, mtime, ...}
+  if BEAM.erlang.element(3, fileInfo) == :directory
+    let names = FS.Directory.list(path).or([]).filter { |name| !name.startsWith?(".") && name != "node_modules" }
+    return names.flatMap { |name| stamps(path + "/" + name, label + "/" + name) }
+  end
+  let stamp: Any = (label, BEAM.erlang.element(6, fileInfo), BEAM.erlang.element(2, fileInfo))
+  return [stamp]
+end

@@ -86,6 +86,8 @@ export function preserveSlices(node: JSONContent): JSONContent {
   return copy;
 }
 
+const optionalFields = new Set(['version']);
+
 export function replaceBody(source: string, body: string, metadata: Record<string, string | boolean>): string {
   const match = source.match(/^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n)/);
   if (!match) throw new Error('The document has no valid frontmatter');
@@ -96,7 +98,9 @@ export function replaceBody(source: string, body: string, metadata: Record<strin
   for (const [key, value] of Object.entries(metadata)) {
     const line = `${key}: ${JSON.stringify(value)}`;
     const index = lines.findIndex(item => item.startsWith(`${key}:`));
-    if (index < 0) lines.push(line); else lines[index] = line;
+    // An optional field left empty is not written: no `version: ""` on every page.
+    if (value === '' && optionalFields.has(key)) { if (index >= 0) lines.splice(index, 1); }
+    else if (index < 0) lines.push(line); else lines[index] = line;
   }
   return `---\n${lines.join('\n')}\n---\n${body}`;
 }

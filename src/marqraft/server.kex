@@ -5,12 +5,36 @@ using Marqraft.Project, only: [Site]
 using URI
 using Rodolfo
 using Marqraft.API, only: [Workspace]
+using Net.HTTP.WebSocket, only: [Connection, CloseMessage]
 
 foul start(directory: String, port: Integer) -> Void or! String do
   let site = Marqraft.Project.load(directory).try
   let root = site.root
   let token = Marqraft.Store.identifier
   let workspace = Process.spawn(Workspace { root })
+  Marqraft.Live.refresh(root).try
+  let listeners = Process.spawn(Marqraft.Live.Listeners {})
+  # Twice a second: when the project's files changed on disk, reload the
+  # site and tell every open editor. Mounted output is checked every third
+  # second: it is large, and changes only when it is regenerated.
+  let _ = Task.start do
+    var authored = Marqraft.Live.fingerprint(root, false)
+    var everything = Marqraft.Live.fingerprint(root, true)
+    var tick = 0
+    loop do
+      Task.sleep(500.milliseconds)
+      tick = tick + 1
+      let nowAuthored = Marqraft.Live.fingerprint(root, false)
+      let nowEverything = tick % 6 == 0 then Marqraft.Live.fingerprint(root, true) else everything
+      if nowAuthored != authored || nowEverything != everything
+        authored = nowAuthored
+        everything = tick % 6 == 0 then nowEverything else Marqraft.Live.fingerprint(root, true)
+        if Marqraft.Live.refresh(root).ok?
+          listeners.broadcast(Marqraft.Live.changed)
+        end
+      end
+    end
+  end
   let router = Rodolfo.router do
     get "/__marqraft/project" do |env|
       if !allowedHost?(env, port)
@@ -35,8 +59,30 @@ foul start(directory: String, port: Integer) -> Void or! String do
           textReply(413, "request too large")
         else
           let result = workspace.invoke(env.param("action").or(""), body).try
+          # A successful action changed files: the next request, and every
+          # open editor, sees the site as it is now.
+          if result.status == 200 && Marqraft.Live.refresh(root).ok?
+            listeners.broadcast(Marqraft.Live.changed)
+          end
           jsonReply(result.status, result.body)
         end
+      end
+    end
+    # Open editors hear here when the site changes, instead of polling.
+    ws "/__marqraft/live" do |env, socket|
+      if !allowedHost?(env, port)
+        socket.close
+      else
+        let id = Marqraft.Store.identifier
+        listeners.join(id, socket)
+        loop do
+          match socket.receiveMessage do
+            Ok(CloseMessage(_, _)) => break
+            Ok(_) => Void
+            Error(_) => break
+          end
+        end
+        listeners.leave(id)
       end
     end
     get "/__marqraft/editor.js" do |_|
@@ -91,7 +137,7 @@ end
 # shows on the next reload: a page (with the authoring UI), the search
 # index, or a file.
 foul serve(root: String, relative: String, token: String) -> Rodolfo.Response.Reply do
-  let site = Marqraft.Project.load(root).try
+  let site = Marqraft.Live.site(root).try
   match Marqraft.Routes.find(site, relative) do
     None => return textReply(404, "Not found")
     Just(output) => do

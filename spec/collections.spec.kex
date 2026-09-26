@@ -79,6 +79,31 @@ describe "collections" do
     assert(!FS.File.read(navFile).try.contains?(home.id))
     assert(FS.File.read(navFile).try.contains?(old.id))
   end
+  it "gives templates the page's version, or its collection's" do
+    let external = "${FS.Directory.temporary}/marqraft-version-theme-${Marqraft.Store.identifier}/version-theme"
+    Marqraft.Builtin.files("basic").entries.each do |entry|
+      let (path, source) = entry
+      let text = path == "page.html.ket" then source.replace("<marqraft-content source=\"title\"></marqraft-content>", "<p class=\"version\"><%= context[\"version\"].or(\"\") %></p><marqraft-content source=\"title\"></marqraft-content>") else source
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.File.write(external + "/" + path, text))
+    end
+    let root = "${FS.Directory.temporary}/marqraft-version-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, external).try
+    let site = Marqraft.Project.load(root).try
+    let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
+    let chapter = Marqraft.Pages.createPage(root, "Chapter", "/tutorial/chapter/", "page", tutorial.id).try
+    let pinned = Marqraft.Pages.createPage(root, "Pinned", "/tutorial/pinned/", "page", tutorial.id).try
+    Marqraft.Pages.save(root, tutorial.id, tutorial.revision, tutorial.source.replace("draft: false", "draft: false\nversion: \"0.4\"")).try
+    Marqraft.Pages.save(root, pinned.id, pinned.revision, pinned.source.replace("draft: true", "draft: true\nversion: \"0.3\"")).try
+    let loaded = Marqraft.Project.load(root).try
+    let render = { |id| Marqraft.Theme.render(loaded, Marqraft.Project.page(loaded, id).try, true).try }
+    assert(render(tutorial.id).contains?("<p class=\"version\">0.4</p>"))
+    assert(render(chapter.id).contains?("<p class=\"version\">0.4</p>"))
+    assert(render(pinned.id).contains?("<p class=\"version\">0.3</p>"))
+    let home = loaded.pages.find { |page| page.path == "/" }.try
+    assert(render(home.id).contains?("<p class=\"version\"></p>"))
+    assert(!Marqraft.Document.parse("---\nid: a\ntitle: A\npath: /\ndraft: false\nversion: \"a\\nb\"\n---\n", "a.md").ok?)
+  end
   it "publishes and unpublishes a page from its draft line only" do
     let root = "${FS.Directory.temporary}/marqraft-publish-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "book").try

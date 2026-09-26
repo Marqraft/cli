@@ -4,9 +4,10 @@ import { api } from './api';
 import { preserveSlices, replaceBody, serialize } from './format';
 import { SaveQueue, type SaveState } from './save';
 import { titleHost } from './hosts';
+import { onSiteChange } from './live';
 import type { Doc, Project } from './types';
 
-type Metadata = { title: string; path: string; draft: boolean; template: string };
+type Metadata = { title: string; path: string; draft: boolean; template: string; version: string };
 
 type Options = {
   initial: Doc;
@@ -29,7 +30,7 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
   const [disk, setDisk] = useState<Doc | null>(null);
   const [recovery, setRecovery] = useState<{ source: string; revision: string } | null>(null);
 
-  const metadata = useRef<Metadata>({ title: initial.title, path: initial.path, draft: initial.draft, template: initial.template });
+  const metadata = useRef<Metadata>({ title: initial.title, path: initial.path, draft: initial.draft, template: initial.template, version: initial.version ?? '' });
   const original = useRef(initial.source);
   const queue = useRef<SaveQueue | null>(null);
   const composing = useRef(false);
@@ -67,10 +68,12 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
     return () => { queue.current?.dispose(); window.removeEventListener('beforeunload', beforeUnload); };
   }, []);
 
-  // External changes: reload clean documents, keep both versions when edits overlap.
+  // External changes — another browser, another program, or this editor's own
+  // saves, pushed by the server as they happen: reload clean documents, keep
+  // both versions when edits overlap.
   useEffect(() => {
     let stopped = false, running = false;
-    const timer = setInterval(async () => {
+    const check = async () => {
       if (running) return; running = true;
       try {
         const fresh = await api<Project>('project'); if (stopped) return;
@@ -83,7 +86,7 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
             if (q.dirty || q.state === 'conflict' || editorRef.current?.isFocused) { q.conflict(); setDisk(external); }
             else {
               original.current = external.source; q.source = external.source; q.revision = external.revision;
-              metadata.current = { title: external.title, path: external.path, draft: external.draft, template: external.template };
+              metadata.current = { title: external.title, path: external.path, draft: external.draft, template: external.template, version: external.version ?? '' };
               editorRef.current?.commands.setContent(preserveSlices(generateJSON(external.html, extensions)), { emitUpdate: false });
               if (titleHost) titleHost.textContent = external.title;
               setDoc(external);
@@ -97,8 +100,9 @@ export function useDocument({ initial, editorRef, extensions, setMessage, setPro
         setProject(fresh);
       } catch (error) { if (!stopped) setMessage(`Cannot check for external changes: ${String((error as Error).message ?? error)}`); }
       finally { running = false; }
-    }, 2000);
-    return () => { stopped = true; clearInterval(timer); };
+    };
+    const stop = onSiteChange(() => void check());
+    return () => { stopped = true; stop(); };
   }, []);
 
   const applyMetadata = (field: keyof Metadata, value: string | boolean) => {

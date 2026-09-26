@@ -24,6 +24,9 @@ record Mount do
   format : String = "markdown"
   title : String = ""
   template : String = "page"
+  # A producer's search index in each version directory, such as
+  # "search.json" (Tey docgen's format), merged into the site's own.
+  search : String = ""
 end
 
 record MountVersion do
@@ -74,9 +77,11 @@ foul loadDirMount(root: String, themeDir: String, entry: {String: Any}, path: St
   return Error("unknown page template for mount ${path}: ${template}") if !Marqraft.Document.slug?(template) || !FS.File.file?(root + "/" + themeDir + "/" + template + ".html.ket")
   let format = Marqraft.Data.text(entry, "format", "markdown")
   return Error("unknown mount format for ${path}: ${format} (markdown or fragments)") if !["markdown", "fragments"].contains?(format)
+  let search = Marqraft.Data.text(entry, "search", "")
+  return Error("mount search must be a file name inside each version directory: ${search}") if search.contains?("/") || search.startsWith?(".")
   let given = Marqraft.Data.text(entry, "title", "")
   let title = given == "" then prettify(dir.split("/").last.or(dir)) else given
-  return Ok(Mount { url: path, dir, versions: mountVersions(resolved, path), rendered?: Marqraft.Data.flag(entry, "pages", false), format, title, template })
+  return Ok(Mount { url: path, dir, versions: mountVersions(resolved, path), rendered?: Marqraft.Data.flag(entry, "pages", false), format, title, template, search })
 end
 
 # What templates see of a mount (context["mounts"]).
@@ -123,6 +128,45 @@ end
 
 let renderedDir?(mount: Mount) -> Bool = mount.rendered? && !mount.dir.empty?
 
+# The newest of a mount's versions, by version order (see compareVersions).
+let newestVersion(mount: Mount) -> MountVersion? do
+  let none: MountVersion? = None
+  return mount.versions.reduce(none) do |best, version|
+    match best do
+      None => Just(version)
+      Just(current) => compareVersions(version.name, current.name) > 0 then Just(version) else best
+    end
+  end
+end
+
+# Version order: dot- and dash-separated parts, numbers compared as numbers
+# (0.10 after 0.9), and a release after its own pre-releases (0.4.0 after
+# 0.4.0-beta.4). -1, 0 or 1, like a comparator.
+let compareVersions(first: String, second: String) -> Integer = compareParts(versionParts(first), versionParts(second))
+
+# "0.4.0-beta.4" -> ["0", "4", "0", "-beta", "4"]: a part after a dash
+# keeps the dash, marking where a pre-release starts.
+let versionParts(name: String) -> [String] = name.replace("-", ".-").split(".").filter { |part| !part.empty? }
+
+let compareParts(first: [String], second: [String]) -> Integer do
+  return 0 if first.empty? && second.empty?
+  if first.empty?
+    return second.first.or("").startsWith?("-") then 1 else -1
+  end
+  if second.empty?
+    return first.first.or("").startsWith?("-") then -1 else 1
+  end
+  let order = comparePart(first.first.or(""), second.first.or(""))
+  return order != 0 then order else compareParts(first.drop(1), second.drop(1))
+end
+
+let comparePart(first: String, second: String) -> Integer do
+  match (Integer.parse(first), Integer.parse(second)) do
+    (Ok(a), Ok(b)) => a < b then -1 else (a > b then 1 else 0)
+    _ => first < second then -1 else (first > second then 1 else 0)
+  end
+end
+
 # Rendered mounts turn generated files into pages the theme renders like any
 # other, except nothing may edit them: they have no frontmatter of their
 # own, so identity, title, and URL derive from the file.
@@ -143,7 +187,7 @@ end
 # their members, so every generated prefix renders through the theme.
 let groupPages(group: MountPages) -> [Page] do
   let mount = group.mount
-  let modules = group.pages
+  let modules = group.pages.map { |page| Page { ...page, version: directoryVersion(mount, pageFile(page)) } }
   let roots = modules.filter { |page| isModulePage(page, mount.dir) && pageRel(pageFile(page), mount.dir).split("/").count == 1 }
   let indexes = mount.versions.map { |version| versionIndex(mount, version, modules) } + [rootIndex(mount, roots)]
   return modules + indexes.filter { |page| !modules.any? { |other| pageId(other) == pageId(page) } }
@@ -165,7 +209,15 @@ end
 let versionIndex(mount: Mount, version: MountVersion, modules: [Page]) -> Page do
   let members = modules.filter { |page| isModulePage(page, mount.dir) && pageRel(pageFile(page), mount.dir).startsWith?(version.name + "/") }
   let items = members.map { |page| "- [${linkText(pageTitle(page))}](${pagePath(page)})" }.join("\n")
-  return generatedPage(mount.dir + "/" + version.name, mountIndexId(mount.url, version.name), mount.title + " " + version.name, version.url, mount.template, items, items)
+  let index = generatedPage(mount.dir + "/" + version.name, mountIndexId(mount.url, version.name), mount.title + " " + version.name, version.url, mount.template, items, items)
+  return Page { ...index, version: version.name }
+end
+
+# The version a generated file belongs to: the mount's version directory it
+# sits in, or none for files at the mount's root.
+let directoryVersion(mount: Mount, file: String) -> String do
+  let first = pageRel(file, mount.dir).split("/").first.or("")
+  return mount.versions.any? { |version| version.name == first } then first else ""
 end
 
 let rootIndex(mount: Mount, roots: [Page]) -> Page do

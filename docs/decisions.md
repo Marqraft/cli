@@ -36,9 +36,9 @@ a fingerprint in the editor), so edits produce line-sized Git diffs.
 ## Theme compilation
 
 `.ket` templates compile to BEAM through `kex --compile`. The compiled runner
-is cached under `.marqraft/cache/renderer-<sha256 of template>`, so a template
-edit is a new compilation and content edits are not. Each render runs the
-cached runner with a JSON context. Built-in themes are materialized into
+is cached under `.marqraft/cache/templates-v1/<digest>`, so a template edit is
+a new compilation and content edits are not, and is loaded into marq's VM and
+called with the context. Built-in themes are materialized into
 `.marqraft/cache/themes/<name>-<digest>/` because templates compile from files.
 
 ## Rendering performance
@@ -65,9 +65,12 @@ Notes for future work:
   `None`/fail with `function_clause` when the condition was false. A minimal
   script did not reproduce it, so the cause is unconfirmed; the affected sites
   follow the check with another statement.
-- Each render still runs the compiled template in a separate `kex --run`
-  process (~130 ms). Loading template modules into the server VM would remove
-  that, but every runner currently compiles to the same `kex_main` module.
+- Each template compiles once into a module named by its digest
+  (`MarqraftTemplate<digest>`, with its body in `kex_marqraft_template_<digest>`)
+  that marq loads into its own VM, so a render is a function call. Running
+  each render as a `kex --run` process cost ~140 ms of VM start: a page in
+  `marq dev` went from ~220 ms to ~65 ms, and building kexhq/docs (101 pages)
+  from 19 s to 3.5 s.
 
 ## Theme separation
 
@@ -114,3 +117,11 @@ with status 400 or 409.
 | POST   | `operation`           | `id`, `input`                                   | the result of the mapped action |
 
 Revisions are SHA-256 digests of the file contents last read.
+
+`marq dev` keeps the loaded site in memory (`Marqraft.Live`) and reloads it
+after every successful authoring action and whenever a watcher sees the
+project's files change: authored files twice a second, mounted output every
+third second. Each reload is announced as `{"type": "changed"}` over the
+WebSocket at `/__marqraft/live` to every open editor, which then checks its
+page and project as it used to every two seconds; while the socket is down,
+editors fall back to that polling.

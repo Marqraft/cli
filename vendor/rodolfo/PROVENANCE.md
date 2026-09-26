@@ -1,4 +1,4 @@
 Source: https://github.com/kexhq/rodolfo
-Local checkout commit: e48d872923ec7be0d46137db9319dcb591817077
+Local checkout commit: 8920b6d (kexhq/rodolfo#24, on main 725e118)
 Version: 0.2.0 (unpublished snapshot). Sources copied without changes.
 Manifest omits upstream example workspace members.

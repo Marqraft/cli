@@ -2,9 +2,9 @@
 
 Click any paragraph to start editing. Pages, images, and settings are ordinary files you can version with Git, and the theme is chosen by name in `marqraft.jsonc`.
 
-<marqraft-code language="kex" filename="hello.kex" line-numbers="true">
-IO.printLine(&quot;Hello, world!&quot;)
-</marqraft-code>
+```kex filename="hello.kex"
+IO.printLine("Hello, world!")
+```
 
 <marqraft-tabs>
 <marqraft-area id="first" label="Write">

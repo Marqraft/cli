@@ -29,7 +29,8 @@ export function builtInCommands(pickImage: () => void): SlashItem[] {
 
 /** Content a theme block starts with, matching its declared body kind. */
 export function blockContent(block: ThemeBlock) {
-  if (block.id === 'code' && !block.template) return { type: 'marqCode', attrs: { settings: defaults(block.settings) } };
+  // The built-in code block is a Markdown fence; the theme's definition gives its default language.
+  if (block.id === 'code' && !block.template) return { type: 'codeBlock', attrs: { language: defaults(block.settings).language || null } };
   if (block.id === 'tabs' && !block.template) return { type: 'marqTabs', attrs: { settings: {} }, content: [newArea('Tab 1')] };
   const content = block.body === 'markdown' ? [{ type: 'paragraph' }] : block.body === 'areas' ? [newArea('Area 1')] : undefined;
   return { type: `theme_${block.id}`, attrs: { settings: defaults(block.settings) }, content };

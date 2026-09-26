@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Node, Extension, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, NodeViewContent, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react';
 import { ArrowDown, ArrowUp, BetweenHorizontalStart, BetweenVerticalStart, Columns3, PanelTop, Plus, Rows3, TableProperties, X } from 'lucide-react';
 import { Table } from '@tiptap/extension-table';
+import CodeBlock from '@tiptap/extension-code-block';
 import type { Editor } from '@tiptap/core';
-import { BlockBar } from './components/BlockBar';
+import { BlockBar, updateSetting } from './components/BlockBar';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
@@ -28,14 +29,65 @@ export const SourceSlices = Extension.create({
 
 const newArea = (label: string) => ({ type: 'marqArea', attrs: { settings: { id: crypto.randomUUID(), label } }, content: [{ type: 'paragraph' }] });
 
+// The languages Marqraft highlights, offered when a theme does not list its own.
+const highlightedLanguages = ['kex', 'rust', 'erlang', 'ruby', 'haskell', 'javascript', 'html', 'css', 'json', 'shell', 'text'];
+
+/** The code languages to choose from: the theme's code block options, or Marqraft's. */
+function codeLanguages(current: string): string[] {
+  const options = blockDefinition('code')?.settings.find(field => field.name === 'language')?.options ?? highlightedLanguages;
+  return current && !options.includes(current) ? [...options, current] : options;
+}
+
+type CodeFields = { language: string; filename: string; caption: string };
+
+/**
+ * Code as a window, like its published form: the filename is typed into the
+ * bar, the language is picked beside it, a button copies the code, and the
+ * caption is typed below it.
+ * The filename and caption are optional.
+ */
+function CodeWindow({ fields, update, text, children }: { fields: CodeFields; update: (key: keyof CodeFields, value: string) => void; text: string; children?: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  const hint = 'Filename';
+  return <>
+    {children}
+    <div className="marq-code-bar" contentEditable={false}>
+      <span className="marq-code-dots" aria-hidden="true"><i /><i /><i /></span>
+      <input className="marq-code-file marq-inline-field" aria-label="Filename" placeholder={hint} spellCheck={false}
+        size={Math.max(4, (fields.filename || hint).length)} value={fields.filename} onChange={event => update('filename', event.target.value)} />
+      <select className="marq-code-language marq-inline-field" aria-label="Language" value={fields.language}
+        onChange={event => update('language', event.target.value)}>
+        {!fields.language && <option value="">plain</option>}
+        {codeLanguages(fields.language).map(language => <option key={language} value={language}>{language}</option>)}
+      </select>
+      <button type="button" className="marq-code-copy" aria-label="Copy code" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+    </div>
+    <pre className="code"><NodeViewContent as={'code' as 'div'} /></pre>
+    <figcaption contentEditable={false} className="marq-code-caption" data-empty={!fields.caption}>
+      <input className="marq-inline-field" aria-label="Caption" placeholder="Add a caption" value={fields.caption} onChange={event => update('caption', event.target.value)} />
+    </figcaption>
+  </>;
+}
+
+/** A Markdown code fence: ```rust filename="…" caption="…", as GitHub writes it. */
+function FenceView(props: NodeViewProps) {
+  const attrs = props.node.attrs as { language: string | null; filename: string; caption: string };
+  const fields = { language: attrs.language ?? '', filename: attrs.filename ?? '', caption: attrs.caption ?? '' };
+  return <NodeViewWrapper as="figure" className="marq-code marq-block" data-language={fields.language} data-testid="code-block">
+    <CodeWindow fields={fields} text={props.node.textContent}
+      update={(key, value) => props.updateAttributes({ [key]: key === 'language' ? value || null : value })} />
+  </NodeViewWrapper>;
+}
+
+/** A <marqraft-code> block, as older pages have them: the same window, with the theme's settings. */
 function CodeView(props: NodeViewProps) {
   const data = props.node.attrs.settings as Record<string, string>;
-  const fields = blockDefinition('code')?.settings ?? [];
-  return <NodeViewWrapper as="figure" className="marq-code marq-block" data-testid="code-block">
-    <BlockBar editor={props.editor} getPos={props.getPos} label="Code" fields={fields} settings={data} />
-    <figcaption contentEditable={false}>{data.filename || data.language || 'Code'}</figcaption>
-    <pre><NodeViewContent as={'code' as 'div'} /></pre>
-    {data.caption && <small contentEditable={false}>{data.caption}</small>}
+  const fields = { language: data.language ?? '', filename: data.filename ?? '', caption: data.caption ?? '' };
+  return <NodeViewWrapper as="figure" className="marq-code marq-block" data-language={fields.language} data-testid="code-block">
+    <CodeWindow fields={fields} text={props.node.textContent} update={(key, value) => updateSetting(props.editor, props.getPos, key, value)}>
+      <BlockBar editor={props.editor} getPos={props.getPos} label="Code" fields={blockDefinition('code')?.settings ?? []} settings={data} />
+    </CodeWindow>
   </NodeViewWrapper>;
 }
 
@@ -143,6 +195,32 @@ function TableView(props: NodeViewProps) {
 // The rows go into a tbody: TipTap puts a node view's content in an element
 // of this tag inside NodeViewContent (a div by default, invalid in a table).
 export const MarqTable = Table.extend({ addNodeView: () => ReactNodeViewRenderer(TableView, { contentDOMElementTag: 'tbody' }) });
+
+// What the server says about a fence it rendered for the editor (data-marq-fence).
+const fenceInfo = (element: HTMLElement): Record<string, string> => {
+  try { return JSON.parse(element.getAttribute('data-marq-fence') ?? '{}'); } catch { return {}; }
+};
+// A plain <pre><code class="language-…"> from nested Markdown, or pasted HTML.
+const classLanguage = (element: HTMLElement) =>
+  [...(element.querySelector('code') ?? element).classList].find(name => name.startsWith('language-'))?.slice('language-'.length) ?? null;
+
+/**
+ * Markdown code fences, shown as windows. Filename and caption live on the
+ * fence's info string after the language, where GitHub ignores them.
+ */
+export const MarqFence = CodeBlock.extend({
+  addAttributes() {
+    return {
+      language: { default: null, rendered: false, parseHTML: element => element.hasAttribute('data-marq-fence') ? fenceInfo(element).language || null : classLanguage(element) },
+      filename: { default: '', rendered: false, parseHTML: element => fenceInfo(element).filename ?? '' },
+      caption: { default: '', rendered: false, parseHTML: element => fenceInfo(element).caption ?? '' },
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'figure[data-marq-fence]', contentElement: 'code', preserveWhitespace: 'full' }, ...(this.parent?.() ?? [])];
+  },
+  addNodeView: () => ReactNodeViewRenderer(FenceView),
+});
 
 export const MarqCode = Node.create({
   name: 'marqCode', group: 'block', content: 'text*', marks: '', code: true, defining: true, draggable: true,

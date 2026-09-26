@@ -25,3 +25,13 @@ describe('source serializer', () => {
     expect(replaceBody(versioned, 'Body', { title: 'Guide', version: '' })).toBe(source);
   });
 });
+
+describe('code fences', () => {
+  it('writes the language first and filename and caption after it, as GitHub reads them', () => {
+    const fence = (attrs: Record<string, string | null>, text: string) => serialize({ type: 'codeBlock', attrs, content: [{ type: 'text', text }] });
+    expect(fence({ language: 'rust', filename: 'src/main.rs', caption: 'The "entry" point.' }, 'fn main() {}'))
+      .toBe('```rust filename="src/main.rs" caption="The &quot;entry&quot; point."\nfn main() {}\n```');
+    expect(fence({ language: 'kex', filename: '', caption: '' }, 'let x = 1')).toBe('```kex\nlet x = 1\n```');
+    expect(fence({ language: null, filename: 'notes.txt', caption: '' }, '```')).toBe('```` filename="notes.txt"\n```\n````');
+  });
+});

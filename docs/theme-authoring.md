@@ -344,6 +344,48 @@ renders GitHub's markup, so style these classes:
 
 `/callout` inserts one, and its settings choose the kind.
 
+## Code
+
+Code needs no block either: it is a Markdown fence, as GitHub writes it. The
+language comes first; an optional `filename` and `caption` may follow, which
+GitHub ignores.
+
+````markdown
+```rust filename="src/main.rs" caption="The entry point."
+fn main() {}
+```
+````
+
+Marqraft renders every fence as a window, highlighted in its language:
+
+```html
+<figure class="marq-code" data-language="rust">
+  <div class="marq-code-bar">
+    <span class="marq-code-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="marq-code-file">src/main.rs</span>
+    <button type="button" class="marq-code-copy" aria-label="Copy code">Copy</button>
+  </div>
+  <pre class="code"><code>…</code></pre>
+  <figcaption>The entry point.</figcaption>
+</figure>
+```
+
+Without a filename the bar shows `<span class="marq-code-language">` instead
+(nothing for plain text), and without a caption there is no `figcaption`.
+The Copy button works without any script on the page.
+
+Code is highlighted into `<span class="tok-…">` tokens: `keyword`, `type`,
+`string`, `number`, `comment`, `bool`, `fn`, `method`, `field`, `op` and
+`punct` (Kex adds `interp`). Marqraft highlights Kex, Rust, Erlang, Ruby,
+Haskell, JavaScript (and TypeScript), HTML, CSS, JSON and shell; other
+languages are shown as written. Common aliases work: `rs`, `rb`, `hs`, `erl`,
+`js`, `ts`, `sh`, `bash`.
+
+In the editor, the filename and caption are typed into the window and the
+language is picked in its bar. A theme's `code` block (see below) lists the
+languages to offer and the one `/code` starts with. Older pages'
+`<marqraft-code>` elements render the same way.
+
 ## Blocks
 
 Blocks are custom HTML elements embedded in Markdown. Settings are
@@ -391,8 +433,9 @@ slot survive. Settings must therefore not add, remove or move the slot.
 Builds strip `data-marq-slot`.
 
 `code` and `tabs` without a `template` use Marqraft's built-in rendering
-(`figure.marq-code`, `div.marq-tabs > section.marq-area`); style those
-classes.
+(`figure.marq-code`, see [Code](#code), and `div.marq-tabs > section.marq-area`);
+style those classes. A `code` block inserts a fence; its `language` setting's
+`options` and `default` are the languages offered and the one it starts with.
 
 Unknown elements, and blocks whose markup does not parse, stay in the file
 unchanged and appear in the editor as editable source.

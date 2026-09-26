@@ -88,7 +88,7 @@ function ProposalCard({ editor, proposal }: { editor: Editor; proposal: Proposal
 function PromptBox({ editor }: { editor: Editor }) {
   const prompting = usePrompting();
   const [text, setText] = useState('');
-  useEffect(() => setText(''), [prompting]);
+  useEffect(() => { setText(''); }, [prompting]);
   const index = prompting ? anchorIndex(editor.state.doc, prompting) : -1;
   const spot = prompting ? place(editor, index < 0 ? prompting.index : index) : null;
   useTarget(spot?.element);

@@ -54,7 +54,8 @@ export function AssistantPanel({ editor, open, setOpen }: { editor: Editor; open
   const pending = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const proposals = useProposals().filter(proposal => proposal.source === 'chat');
-  useEffect(() => bottom.current?.scrollIntoView({ block: 'end' }), [turns, busy]);
+  // Braces: newer browsers return a promise from scrollIntoView, which React would take for a cleanup.
+  useEffect(() => { bottom.current?.scrollIntoView({ block: 'end' }); }, [turns, busy]);
 
   const send = async () => {
     const content = text.trim();

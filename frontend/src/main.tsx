@@ -28,7 +28,7 @@ import { NavigationTree } from './components/NavigationTree';
 import { MenuEditor } from './components/MenuEditor';
 import { CollectionNav } from './components/CollectionNav';
 import { ReadOnlyBar, Topbar } from './components/Topbar';
-import { ThemeSheet } from './components/ThemeSheet';
+import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { ConflictDialog } from './components/ConflictDialog';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Button } from './components/ui/button';
@@ -114,7 +114,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
       host, `navigation-${host.dataset.marqScope ?? 'all'}`))}
     {menuHosts.map(host => createPortal(<MenuEditor project={liveProject} menuId={host.dataset.marqMenu ?? ''} currentId={initial.id} save={site.saveMenus} navigate={navigate} />, host, host.dataset.marqMenu))}
     {slashMenu.slash && mode === 'edit' && <SlashMenu state={slashMenu.slash} items={slashMenu.matches} choose={slashMenu.choose} hover={slashMenu.hover} />}
-    <ThemeSheet project={project} open={themeOpen} setOpen={setThemeOpen} save={site.saveTheme} onError={setMessage} />
+    <ThemeSettingsModal project={project} open={themeOpen} setOpen={setThemeOpen} save={site.saveTheme} onError={setMessage} />
     <ConflictDialog {...page.conflict} />
     <input ref={imageInput} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {
       const file = event.target.files?.[0]; event.target.value = '';

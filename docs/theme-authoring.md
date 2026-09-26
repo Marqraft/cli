@@ -295,6 +295,28 @@ Types: `text`, `multiline`, `toggle` (`"true"`/`"false"`), `number` (`min`,
 into the site's upload folder).
 Values are strings and are validated on the server.
 
+The settings modal groups fields into sidebar pages with sections. Declare
+the pages once, then point each field at one with `page` and an optional
+`section` heading:
+
+```json
+"settingsPages": [
+  { "id": "appearance", "label": "Appearance", "icon": "palette" },
+  { "id": "brand", "label": "Brand", "icon": "image" }
+],
+"settings": [
+  { "name": "accent", "label": "Accent color", "type": "color", "default": "#b52a35", "page": "appearance", "section": "Colors" },
+  { "name": "logo", "label": "Logo", "type": "image", "default": "", "page": "brand", "section": "Identity" }
+]
+```
+
+Page icons are optional (`palette`, `type`, `image`, `globe`, `sliders`).
+Fields without a `page` fall into the first declared page; without any
+`settingsPages` they share one General page. Fields without a `section` render as an untitled group, in field order.
+The modal's search matches page labels,
+section titles, and field labels and names. `page` and `section` are
+editor-only metadata: rendering, validation, and saved values ignore them.
+
 Color and number settings become CSS custom properties named
 `--marq-<name>`, so the theme uses `var(--marq-accent, #b52a35)`. The Theme
 panel previews them live by updating the same properties.

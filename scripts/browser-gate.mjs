@@ -143,7 +143,8 @@ try {
   await page.getByRole('textbox', { name: 'Accent color', exact: true }).fill('#225588');
   assert.equal(await heading.evaluate(el => getComputedStyle(el).color), 'rgb(34, 85, 136)');
   await page.getByRole('button', { name: 'Save theme settings' }).click();
-  await page.getByRole('alert').filter({ hasText: 'Theme settings saved' }).waitFor();
+  // The settings modal hides the background app (and its toast) from the accessibility tree while open.
+  await page.getByRole('alert', { includeHidden: true }).filter({ hasText: 'Theme settings saved' }).waitFor();
   assert((await readFile(site + '/marqraft.jsonc', 'utf8')).includes('#225588'));
   await page.getByRole('button', { name: 'Close panel' }).click();
 

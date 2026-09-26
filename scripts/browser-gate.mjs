@@ -116,6 +116,28 @@ try {
   await page.reload(); await ready(page);
   assert((await page.locator('.site-content .markdown-alert-warning').textContent()).includes('Editable nested content'));
 
+  step('every block has a handle that moves it between blocks, never into one');
+  await caretToEnd(page.locator('.site-content p').first()); await page.keyboard.press('Enter');
+  await page.keyboard.type('Handled block');
+  const handled = page.locator('.site-content .ProseMirror > p', { hasText: 'Handled block' });
+  const blocks = () => page.locator('.site-content .ProseMirror > *').evaluateAll(elements => elements.map(element => element.textContent));
+  const before = await blocks();
+  await handled.hover();
+  await page.getByRole('button', { name: 'Block options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  const after = await blocks();
+  assert.equal(after.indexOf('Handled block'), before.indexOf('Handled block') - 1);
+  // Dropped inside the lower half of the alert: after the alert, not in it.
+  await handled.hover();
+  const box = await alert.boundingBox();
+  const grip = await page.getByRole('button', { name: 'Block options', exact: true }).boundingBox();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + 40, box.y + box.height - 8, { steps: 8 }); await page.mouse.up();
+  await saved(page); await noDialog(page);
+  const moved = await readFile(site + '/content/index.md', 'utf8');
+  // (The paragraph carries on the bold of the one it was split from.)
+  assert(/> Editable nested content\n\n(\*\*)?Handled block/.test(moved), moved);
+
   step('theme settings preview live and persist');
   await page.getByRole('button', { name: 'Theme', exact: true }).click();
   await page.getByRole('textbox', { name: 'Accent color', exact: true }).fill('#225588');

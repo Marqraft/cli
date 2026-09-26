@@ -23,6 +23,7 @@ import { CoEditing } from './collaboration';
 import type { Doc, Project } from './types';
 import { EditorToolbar } from './components/EditorToolbar';
 import { SlashMenu } from './components/SlashMenu';
+import { BlockHandle } from './components/BlockHandle';
 import { NavigationTree } from './components/NavigationTree';
 import { MenuEditor } from './components/MenuEditor';
 import { CollectionNav } from './components/CollectionNav';
@@ -106,6 +107,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     <Topbar project={project} doc={doc} state={page.saveState} mode={mode} setMode={setMode} retry={page.retry} openTheme={() => setThemeOpen(true)} applyMetadata={page.applyMetadata} />
     {editor && toolbarElement && createPortal(<EditorToolbar editor={editor} commands={commands} pickImage={pickImage} />, toolbarElement)}
     {editor && bodyHost && createPortal(<EditorContent editor={editor} />, bodyHost)}
+    {editor && mode === 'edit' && createPortal(<BlockHandle editor={editor} />, document.body)}
     {navigationHosts.map(host => createPortal(host.dataset.marqScope === 'collections'
       ? <CollectionNav {...navigation} />
       : <NavigationTree {...navigation} root={host.dataset.marqScope === 'collection' ? host.dataset.marqCollection || undefined : undefined} />,

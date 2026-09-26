@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Editor } from '@tiptap/core';
-import { GripVertical, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { SlidersHorizontal, Trash2 } from 'lucide-react';
 import type { Field } from '../types';
 import { Fields } from './Fields';
 import { Button } from './ui/button';
@@ -12,7 +12,7 @@ type Props = {
   settings: Record<string, string>; children?: React.ReactNode;
 };
 
-/** Hover chrome for a block: drag handle, generated settings, delete. Hidden in preview and output. */
+/** Hover chrome for a block: its name, generated settings, delete. It is moved with the BlockHandle every block has. Hidden in preview and output. */
 export function BlockBar({ editor, getPos, label, fields, settings, children }: Props) {
   const [open, setOpen] = useState(false);
   const update = (key: string, value: string) => {
@@ -23,7 +23,6 @@ export function BlockBar({ editor, getPos, label, fields, settings, children }: 
   const remove = () => { const pos = getPos(); if (pos === undefined) return; const node = editor.state.doc.nodeAt(pos); if (node) editor.chain().focus().deleteRange({ from: pos, to: pos + node.nodeSize }).run(); };
   return (
     <div contentEditable={false} data-marq-chrome className="marq-ui marq-block-bar marq-authoring-only mq:absolute mq:-top-3.5 mq:right-2 mq:z-20 mq:flex mq:items-center mq:gap-0.5 mq:rounded-md mq:border mq:border-border mq:bg-background mq:p-0.5 mq:shadow-sm" data-open={open}>
-      <span data-drag-handle draggable className="mq:flex mq:h-7 mq:cursor-grab mq:items-center mq:px-1 mq:text-muted-foreground" aria-label={`Drag ${label}`}><GripVertical className="mq:size-3.5" /></span>
       <span className="mq:px-1 mq:text-xs mq:font-medium mq:text-muted-foreground">{label}</span>
       {children}
       {fields.length > 0 && <Popover open={open} onOpenChange={setOpen}>

@@ -75,6 +75,9 @@ end
 foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
   let body = page.html.empty? then Marqraft.Content.render(page.body, authoring?, site.root, Marqraft.Data.list(site.theme.get("blocks").or([])).try) else page.html
   let title = authoring? then "<h1 data-marq-title>${Marqraft.Content.escape(page.title)}</h1>" else "<h1>${Marqraft.Content.escape(page.title)}</h1>"
+  # The description as text, for a template to place in its own element; the
+  # editor edits it in place there.
+  let lede = authoring? then "<span data-marq-description>${Marqraft.Content.escape(page.description)}</span>" else Marqraft.Content.escape(page.description)
   let content = authoring? then "<div data-marq-body>${body}</div>" else body
   let settings = Marqraft.Data.object(site.config.get("settings").or({})).try
   let links = navigation(site, Marqraft.Navigation.visible(site.navigation, page.id), authoring?, page.id)
@@ -104,7 +107,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "title": page.title, "description": page.description, "path": page.path,
     "siteTitle": Marqraft.Data.text(site.config, "title", "My site"),
     "settings": settingValues(site, settings),
-    "body": content, "heading": title,
+    "body": content, "heading": title, "lede": lede,
     "navigation": authoring? then "<div data-marq-navigation>${links}</div>" else links,
     "navigation:collections": authoring? then "<div data-marq-navigation data-marq-scope=\"collections\">${collections}</div>" else collections,
     "navigation:collection": authoring? then "<div data-marq-navigation data-marq-scope=\"collection\" data-marq-collection=\"${Marqraft.Content.escape(collectionId)}\">${members}</div>" else members,
@@ -135,12 +138,14 @@ let bindings(html: String, context: {String: Any}, authoring?: Bool) -> String o
   let element = Marqraft.Content.element("<marqraft-" + parts.drop(1).join("<marqraft-")).try
   let replacement = if element.name == "marqraft-content"
     let source = element.attributes.get("source").or("")
-    return Error("unknown content binding: ${source}") if !["body", "title", "navigation", "pager", "menu", "versions"].contains?(source)
+    return Error("unknown content binding: ${source}") if !["body", "title", "description", "navigation", "pager", "menu", "versions"].contains?(source)
     let scope = element.attributes.get("scope").or("")
     let key = if source == "menu"
       "menu:" + element.attributes.get("menu").or("")
     elif source == "title"
       "heading"
+    elif source == "description"
+      "lede"
     elif scope != ""
       source + ":" + scope
     else

@@ -173,6 +173,19 @@ try {
   assert.equal(await page.locator('[data-marq-title]').textContent(), 'Variables & Types');
   assert(await page.locator('.site-navigation a[aria-current=page] .marq-draft').count() === 1);
 
+  step('the page description is edited in Page settings and written only when set');
+  await page.getByRole('button', { name: 'Page', exact: true }).click();
+  const file = site + '/' + await page.locator('.marq-ui .mq\\:font-mono', { hasText: '.md' }).first().textContent();
+  await page.getByRole('textbox', { name: 'Description' }).fill('Names & values');
+  await page.keyboard.press('Escape');
+  await saved(page); await noDialog(page);
+  assert((await readFile(file, 'utf8')).includes('description: "Names & values"'));
+  await page.getByRole('button', { name: 'Page', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Description' }).fill('');
+  await page.keyboard.press('Escape');
+  await saved(page);
+  assert(!(await readFile(file, 'utf8')).includes('description:'));
+
   step('subpage from the page menu nests under its parent');
   await page.locator('.site-navigation a', { hasText: 'Getting started' }).hover();
   await page.getByRole('button', { name: 'Getting started options' }).click();

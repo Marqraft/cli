@@ -14,9 +14,9 @@ import { themeNodes } from './theme-nodes';
 import { api, pageID, upload } from './api';
 import { registry } from './registry';
 import { slashCommands } from './commands';
-import { bodyHost, menuHosts, navigationHosts, rememberMode, storedMode, titleHost, toolbarHost, type Mode } from './hosts';
+import { bodyHost, descriptionHost, menuHosts, navigationHosts, rememberMode, storedMode, titleHost, toolbarHost, type Mode } from './hosts';
 import { useProject } from './useProject';
-import { useDocument, useTitleEditing } from './useDocument';
+import { useDocument, useInlineText } from './useDocument';
 import { useSlashMenu } from './useSlashMenu';
 import { PageSession } from './collab';
 import { CoEditing } from './collaboration';
@@ -80,7 +80,8 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     onBlur: () => setTimeout(() => { if (!document.activeElement?.closest('[data-marq-chrome]')) slashMenu.close(); }, 100),
   });
   editorRef.current = editor;
-  useTitleEditing(editor, page.editTitle);
+  useInlineText(titleHost, 'Page title', editor, page.editTitle);
+  useInlineText(descriptionHost, 'Page description', editor, page.editDescription);
   useEffect(() => { if (editor) session.start(); }, [editor]);
   useEffect(() => () => session.dispose(), []);
 
@@ -89,7 +90,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     editor?.setEditable(mode === 'edit');
     document.body.classList.toggle('marq-previewing', mode === 'preview');
     rememberMode(initialProject.project, mode);
-    if (titleHost) titleHost.contentEditable = mode === 'edit' ? 'true' : 'false';
+    for (const host of [titleHost, descriptionHost]) if (host) host.contentEditable = mode === 'edit' ? 'true' : 'false';
     if (mode === 'preview') slashMenu.close();
   }, [mode, editor]);
 

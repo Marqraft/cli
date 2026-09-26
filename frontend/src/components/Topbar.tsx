@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 type Props = {
   project: Project; doc: Doc; state: SaveState; mode: 'edit' | 'preview';
   setMode: (mode: 'edit' | 'preview') => void; retry: () => void; openTheme: () => void;
-  applyMetadata: (field: 'title' | 'path' | 'template' | 'draft' | 'version', value: string | boolean) => void;
+  applyMetadata: (field: 'title' | 'description' | 'path' | 'template' | 'draft' | 'version', value: string | boolean) => void;
 };
 
 function Status({ state, retry }: { state: SaveState; retry: () => void }) {
@@ -59,6 +59,9 @@ export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, a
               <div><div className="mq:text-sm mq:font-semibold">Page settings</div><div className="mq:font-mono mq:text-[11px] mq:text-muted-foreground">{doc.file}</div></div>
               <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-title">Title</Label>
                 <Input id="marq-page-title" value={doc.title} onChange={event => applyMetadata('title', event.target.value)} /></div>
+              <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-description">Description</Label>
+                <Input id="marq-page-description" placeholder="None" value={doc.description ?? ''} onChange={event => applyMetadata('description', event.target.value)} />
+                <p className="mq:text-xs mq:text-muted-foreground">Used for search results and link previews, and shown by themes that display one.</p></div>
               <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-path">URL path</Label>
                 <Input id="marq-page-path" aria-invalid={Boolean(pathError)} className="mq:font-mono" value={path} onChange={event => setPath(event.target.value)} onBlur={commitPath} onKeyDown={event => { if (event.key === 'Enter') commitPath(); }} />
                 <p className={pathError ? 'mq:text-xs mq:text-destructive' : 'mq:text-xs mq:text-muted-foreground'}>{pathError || 'Renaming or moving a page never changes its URL.'}</p></div>

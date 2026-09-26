@@ -56,7 +56,7 @@ describe "theme selection" do
     end
     let root = "${FS.Directory.temporary}/marqraft-external-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
-    assert(Marqraft.Data.text(Marqraft.Data.read(root + "/marqraft.jsonc").try, "theme", "") == external)
+    assert(Marqraft.Data.text(Marqraft.Data.read(root + "/marqraft.jsonc").try, "theme", "") == Marqraft.Store.realPath(external).try)
     let site = Marqraft.Project.load(root).try
     assert(site.themeDir.startsWith?(".marqraft/cache/themes/docs-theme-"))
     assert(FS.File.write(external + "/style.css", "body{color:#123456}"))

@@ -86,7 +86,7 @@ export function preserveSlices(node: JSONContent): JSONContent {
   return copy;
 }
 
-const optionalFields = new Set(['version']);
+const optionalFields = new Set(['version', 'description']);
 
 export function replaceBody(source: string, body: string, metadata: Record<string, string | boolean>): string {
   const match = source.match(/^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n)/);

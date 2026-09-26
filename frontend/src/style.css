@@ -109,6 +109,8 @@ body.marq-previewing:has(#marq-chrome) { padding-top: 48px; }
 .marq-document .ProseMirror-gapcursor::after { border-top-color: currentColor; }
 [data-marq-title][contenteditable="true"] { outline: none; }
 [data-marq-title][contenteditable="true"]:empty::before { content: "Untitled"; color: #a1a1aa; }
+[data-marq-description][contenteditable="true"] { outline: none; }
+[data-marq-description][contenteditable="true"]:empty::before { content: "Add a description"; color: #a1a1aa; }
 .marq-block { position: relative; }
 @layer marq-state {
   .marq-block-bar, .marq-nav-actions, .marq-menu-actions { opacity: 0 !important; transition: opacity .12s; }

@@ -82,6 +82,7 @@ emit plain HTML:
 |--------------|---------------------------------------------------------------|
 | `title`      | `<h1>` with the page title                                    |
 | `body`       | the page content                                              |
+| `description` | the page's `description:` front matter as text, for the template to place in its own element (`<p class="lede">…</p>`); in dev it is wrapped in `<span data-marq-description>`, which the editor edits in place like the title |
 | `navigation` | nested `<ul><li><a>` in navigation order; the current page has `aria-current="page"`, drafts carry `<small class="marq-draft">` in dev and are omitted from builds. A template may bind it more than once (a sidebar and a contents list); in dev the first region in document order becomes the editable page tree, with its New page and reordering controls, and later ones stay read-only, so put the sidebar first |
 | `menu`       | with `menu="<id>"`: `<ul class="marq-menu">` of the site's links for a menu the theme declares; the current page's link has `aria-current="page"`, links to drafts are omitted from builds |
 | `navigation` with `scope="collections"` | the top-level entries only, one link per collection; the collection holding the current page has `aria-current="true"` |

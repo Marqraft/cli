@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, Check, Eye, FileText, Loader2, Palette, PenLine, RotateCw, Settings2 } from 'lucide-react';
+import { AlertTriangle, Check, Eye, FileText, Loader2, Palette, PenLine, RotateCw, Settings2, Sparkles } from 'lucide-react';
 import marqraftIcon from '../assets/marqraft-icon.png';
 import type { SaveState } from '../save';
 import type { Doc, Project } from '../types';
@@ -16,7 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 type Props = {
   project: Project; doc: Doc; state: SaveState; mode: 'edit' | 'preview';
   setMode: (mode: 'edit' | 'preview') => void; retry: () => void; openTheme: () => void;
-  applyMetadata: (field: 'title' | 'path' | 'template' | 'draft' | 'version', value: string | boolean) => void;
+  /** Opens the AI chat; absent when no AI provider can answer. */
+  openAssistant?: () => void;
+  applyMetadata: (field: 'title' | 'description' | 'path' | 'template' | 'draft' | 'version', value: string | boolean) => void;
 };
 
 function Status({ state, retry }: { state: SaveState; retry: () => void }) {
@@ -33,7 +35,7 @@ function Status({ state, retry }: { state: SaveState; retry: () => void }) {
   </span>;
 }
 
-export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, applyMetadata }: Props) {
+export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, openAssistant, applyMetadata }: Props) {
   const [path, setPath] = useState(doc.path);
   useEffect(() => setPath(doc.path), [doc.path]);
   const pathTaken = project.pages.some(page => page.id !== doc.id && page.path.toLowerCase() === path.toLowerCase());
@@ -59,6 +61,9 @@ export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, a
               <div><div className="mq:text-sm mq:font-semibold">Page settings</div><div className="mq:font-mono mq:text-[11px] mq:text-muted-foreground">{doc.file}</div></div>
               <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-title">Title</Label>
                 <Input id="marq-page-title" value={doc.title} onChange={event => applyMetadata('title', event.target.value)} /></div>
+              <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-description">Description</Label>
+                <Input id="marq-page-description" placeholder="None" value={doc.description ?? ''} onChange={event => applyMetadata('description', event.target.value)} />
+                <p className="mq:text-xs mq:text-muted-foreground">Used for search results and link previews, and shown by themes that display one.</p></div>
               <div className="mq:flex mq:flex-col mq:gap-1.5"><Label htmlFor="marq-page-path">URL path</Label>
                 <Input id="marq-page-path" aria-invalid={Boolean(pathError)} className="mq:font-mono" value={path} onChange={event => setPath(event.target.value)} onBlur={commitPath} onKeyDown={event => { if (event.key === 'Enter') commitPath(); }} />
                 <p className={pathError ? 'mq:text-xs mq:text-destructive' : 'mq:text-xs mq:text-muted-foreground'}>{pathError || 'Renaming or moving a page never changes its URL.'}</p></div>
@@ -76,6 +81,7 @@ export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, a
             </div>
           </PopoverContent>
         </Popover>
+        {openAssistant && mode === 'edit' && <Button variant="ghost" size="sm" onClick={openAssistant}><Sparkles />Ask AI</Button>}
         <Button variant="ghost" size="sm" onClick={openTheme}><Palette />Theme</Button>
         <Separator orientation="vertical" />
         {mode === 'edit'

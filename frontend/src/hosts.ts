@@ -15,6 +15,8 @@ export function rememberMode(project: string, mode: Mode) {
 
 export const bodyHost = document.querySelector<HTMLElement>('[data-marq-body]');
 export const titleHost = document.querySelector<HTMLElement>('[data-marq-title]');
+// A theme that shows the page description marks it with the description binding.
+export const descriptionHost = document.querySelector<HTMLElement>('[data-marq-description]');
 // A template may render navigation several times: collections in a header, the
 // current collection in a sidebar, a contents list. The first region of each
 // scope is editable; later regions of the same scope keep their rendered links.

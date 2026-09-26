@@ -47,7 +47,9 @@ export function serialize(node: JSONContent): string {
     case 'codeBlock': {
       const text = children.map(n => n.text ?? '').join('');
       const fence = '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map(m => m[0].length + 1)));
-      return `${fence}${node.attrs?.language ?? ''}\n${text}\n${fence}`;
+      // The language first, as GitHub reads it; filename and caption after it, when set.
+      const extras = Object.fromEntries((['filename', 'caption'] as const).filter(key => node.attrs?.[key]).map(key => [key, node.attrs![key]]));
+      return `${fence}${node.attrs?.language ?? ''}${attributes(extras)}\n${text}\n${fence}`;
     }
     case 'marqCode': return `<marqraft-code${attributes(node.attrs?.settings ?? {})}>${escapeHTML(children.map(n => n.text ?? '').join(''))}</marqraft-code>`;
     case 'marqTabs': return `<marqraft-tabs${attributes(node.attrs?.settings ?? {})}>\n${children.map(serialize).join('\n')}\n</marqraft-tabs>`;
@@ -86,7 +88,7 @@ export function preserveSlices(node: JSONContent): JSONContent {
   return copy;
 }
 
-const optionalFields = new Set(['version']);
+const optionalFields = new Set(['version', 'description']);
 
 export function replaceBody(source: string, body: string, metadata: Record<string, string | boolean>): string {
   const match = source.match(/^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n)/);

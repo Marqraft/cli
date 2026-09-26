@@ -82,6 +82,7 @@ emit plain HTML:
 |--------------|---------------------------------------------------------------|
 | `title`      | `<h1>` with the page title                                    |
 | `body`       | the page content                                              |
+| `description` | the page's `description:` front matter as text, for the template to place in its own element (`<p class="lede">…</p>`); in dev it is wrapped in `<span data-marq-description>`, which the editor edits in place like the title |
 | `navigation` | nested `<ul><li><a>` in navigation order; the current page has `aria-current="page"`, drafts carry `<small class="marq-draft">` in dev and are omitted from builds. A template may bind it more than once (a sidebar and a contents list); in dev the first region in document order becomes the editable page tree, with its New page and reordering controls, and later ones stay read-only, so put the sidebar first |
 | `menu`       | with `menu="<id>"`: `<ul class="marq-menu">` of the site's links for a menu the theme declares; the current page's link has `aria-current="page"`, links to drafts are omitted from builds |
 | `navigation` with `scope="collections"` | the top-level entries only, one link per collection; the collection holding the current page has `aria-current="true"` |
@@ -295,6 +296,28 @@ Types: `text`, `multiline`, `toggle` (`"true"`/`"false"`), `number` (`min`,
 into the site's upload folder).
 Values are strings and are validated on the server.
 
+The settings modal groups fields into sidebar pages with sections. Declare
+the pages once, then point each field at one with `page` and an optional
+`section` heading:
+
+```json
+"settingsPages": [
+  { "id": "appearance", "label": "Appearance", "icon": "palette" },
+  { "id": "brand", "label": "Brand", "icon": "image" }
+],
+"settings": [
+  { "name": "accent", "label": "Accent color", "type": "color", "default": "#b52a35", "page": "appearance", "section": "Colors" },
+  { "name": "logo", "label": "Logo", "type": "image", "default": "", "page": "brand", "section": "Identity" }
+]
+```
+
+Page icons are optional (`palette`, `type`, `image`, `globe`, `sliders`).
+Fields without a `page` fall into the first declared page; without any
+`settingsPages` they share one General page. Fields without a `section` render as an untitled group, in field order.
+The modal's search matches page labels,
+section titles, and field labels and names. `page` and `section` are
+editor-only metadata: rendering, validation, and saved values ignore them.
+
 Color and number settings become CSS custom properties named
 `--marq-<name>`, so the theme uses `var(--marq-accent, #b52a35)`. The Theme
 panel previews them live by updating the same properties.
@@ -320,6 +343,48 @@ renders GitHub's markup, so style these classes:
 ```
 
 `/callout` inserts one, and its settings choose the kind.
+
+## Code
+
+Code needs no block either: it is a Markdown fence, as GitHub writes it. The
+language comes first; an optional `filename` and `caption` may follow, which
+GitHub ignores.
+
+````markdown
+```rust filename="src/main.rs" caption="The entry point."
+fn main() {}
+```
+````
+
+Marqraft renders every fence as a window, highlighted in its language:
+
+```html
+<figure class="marq-code" data-language="rust">
+  <div class="marq-code-bar">
+    <span class="marq-code-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="marq-code-file">src/main.rs</span>
+    <button type="button" class="marq-code-copy" aria-label="Copy code">Copy</button>
+  </div>
+  <pre class="code"><code>…</code></pre>
+  <figcaption>The entry point.</figcaption>
+</figure>
+```
+
+Without a filename the bar shows `<span class="marq-code-language">` instead
+(nothing for plain text), and without a caption there is no `figcaption`.
+The Copy button works without any script on the page.
+
+Code is highlighted into `<span class="tok-…">` tokens: `keyword`, `type`,
+`string`, `number`, `comment`, `bool`, `fn`, `method`, `field`, `op` and
+`punct` (Kex adds `interp`). Marqraft highlights Kex, Rust, Erlang, Ruby,
+Haskell, JavaScript (and TypeScript), HTML, CSS, JSON and shell; other
+languages are shown as written. Common aliases work: `rs`, `rb`, `hs`, `erl`,
+`js`, `ts`, `sh`, `bash`.
+
+In the editor, the filename and caption are typed into the window and the
+language is picked in its bar. A theme's `code` block (see below) lists the
+languages to offer and the one `/code` starts with. Older pages'
+`<marqraft-code>` elements render the same way.
 
 ## Blocks
 
@@ -368,8 +433,9 @@ slot survive. Settings must therefore not add, remove or move the slot.
 Builds strip `data-marq-slot`.
 
 `code` and `tabs` without a `template` use Marqraft's built-in rendering
-(`figure.marq-code`, `div.marq-tabs > section.marq-area`); style those
-classes.
+(`figure.marq-code`, see [Code](#code), and `div.marq-tabs > section.marq-area`);
+style those classes. A `code` block inserts a fence; its `language` setting's
+`options` and `default` are the languages offered and the one it starts with.
 
 Unknown elements, and blocks whose markup does not parse, stay in the file
 unchanged and appear in the editor as editable source.

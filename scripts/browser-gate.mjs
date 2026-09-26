@@ -85,10 +85,8 @@ try {
   await saved(page);
 
   step('generated block settings and repeatable areas');
-  await page.locator('.marq-code').first().hover();
-  await page.getByRole('button', { name: 'Code settings', exact: true }).click();
-  await page.getByLabel('Filename', { exact: true }).fill('literal <&>.kex');
-  await page.keyboard.press('Escape');
+  // The starter page's code is a Markdown fence; its filename is typed into the window's bar.
+  await page.getByRole('textbox', { name: 'Filename', exact: true }).first().fill('literal <&>.kex');
   await page.getByRole('button', { name: 'Add tab', exact: true }).click();
   await page.getByRole('textbox', { name: 'Tab label', exact: true }).last().fill('Third');
   await page.getByRole('button', { name: 'Move tab up', exact: true }).last().click();
@@ -96,7 +94,23 @@ try {
   await page.reload(); await ready(page);
   assert.equal(await page.getByRole('textbox', { name: 'Tab label', exact: true }).count(), 3);
   assert.equal(await page.getByRole('textbox', { name: 'Tab label', exact: true }).nth(1).inputValue(), 'Third');
-  assert((await page.locator('.marq-code figcaption').first().textContent()).includes('literal <&>.kex'));
+  assert.equal(await page.getByRole('textbox', { name: 'Filename', exact: true }).first().inputValue(), 'literal <&>.kex');
+
+  step('code blocks are windows: filename and caption typed in place, any language highlighted');
+  const window = page.locator('.site-content .marq-code').first();
+  await window.hover();
+  // A fence's settings are its language, filename and caption, as on any block.
+  await page.getByRole('button', { name: 'Code settings', exact: true }).first().click();
+  await page.getByRole('dialog').getByLabel('Caption', { exact: true }).fill('Prints a greeting');
+  await page.keyboard.press('Escape');
+  assert.equal(await window.getByRole('textbox', { name: 'Caption', exact: true }).inputValue(), 'Prints a greeting');
+  await window.getByRole('combobox', { name: 'Language' }).selectOption('ruby');
+  // IO is a constant in Ruby, coloured by the server's Ruby highlighter.
+  await window.locator('pre .tok-type', { hasText: 'IO' }).first().waitFor();
+  await saved(page); await noDialog(page);
+  const coded = await readFile(site + '/content/index.md', 'utf8');
+  // Stored as GitHub writes it: the language first, then the optional extras.
+  assert(coded.includes('```ruby filename="literal &lt;&amp;&gt;.kex" caption="Prints a greeting"\nIO.printLine("Hello, world!")\n```'), coded);
 
   step('slash command inserts a GitHub alert saved as Markdown');
   await caretToEnd(page.locator('.site-content p').first()); await page.keyboard.press('Enter');
@@ -143,7 +157,8 @@ try {
   await page.getByRole('textbox', { name: 'Accent color', exact: true }).fill('#225588');
   assert.equal(await heading.evaluate(el => getComputedStyle(el).color), 'rgb(34, 85, 136)');
   await page.getByRole('button', { name: 'Save theme settings' }).click();
-  await page.getByRole('alert').filter({ hasText: 'Theme settings saved' }).waitFor();
+  // The settings modal hides the background app (and its toast) from the accessibility tree while open.
+  await page.getByRole('alert', { includeHidden: true }).filter({ hasText: 'Theme settings saved' }).waitFor();
   assert((await readFile(site + '/marqraft.jsonc', 'utf8')).includes('#225588'));
   await page.getByRole('button', { name: 'Close panel' }).click();
 
@@ -171,6 +186,19 @@ try {
   await page.waitForURL(`${base}/variables-types/`); await ready(page);
   assert.equal(await page.locator('[data-marq-title]').textContent(), 'Variables & Types');
   assert(await page.locator('.site-navigation a[aria-current=page] .marq-draft').count() === 1);
+
+  step('the page description is edited in Page settings and written only when set');
+  await page.getByRole('button', { name: 'Page', exact: true }).click();
+  const file = site + '/' + await page.locator('.marq-ui .mq\\:font-mono', { hasText: '.md' }).first().textContent();
+  await page.getByRole('textbox', { name: 'Description' }).fill('Names & values');
+  await page.keyboard.press('Escape');
+  await saved(page); await noDialog(page);
+  assert((await readFile(file, 'utf8')).includes('description: "Names & values"'));
+  await page.getByRole('button', { name: 'Page', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Description' }).fill('');
+  await page.keyboard.press('Escape');
+  await saved(page);
+  assert(!(await readFile(file, 'utf8')).includes('description:'));
 
   step('subpage from the page menu nests under its parent');
   await page.locator('.site-navigation a', { hasText: 'Getting started' }).hover();
@@ -264,6 +292,8 @@ try {
   assert(home.includes('<link rel="icon" href="/_theme/favicon.svg" type="image/svg+xml">'), 'the theme favicon is linked');
   assert((await readFile(site + '/dist/_theme/favicon.svg', 'utf8')).startsWith('<svg'), 'theme assets are copied into the build');
   assert(home.includes('Installing') && home.includes('#225588'));
+  assert(home.includes('<div class="marq-code-bar">') && home.includes('<figcaption>Prints a greeting</figcaption>'), 'code blocks publish as windows with their caption');
+  assert(home.includes('<span class="tok-type">IO</span>'), 'published code is highlighted in its language');
   // Installing was published above; Variables & Types is still a draft.
   await stat(site + '/dist/tutorial/installing/index.html');
   await assert.rejects(stat(site + '/dist/variables-types/index.html'));

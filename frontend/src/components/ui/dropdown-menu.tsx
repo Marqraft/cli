@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { DropdownMenu as MenuPrimitive } from 'radix-ui';
+import { ChevronRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export const DropdownMenu = MenuPrimitive.Root;
@@ -20,4 +21,17 @@ export function DropdownMenuSeparator({ className, ...props }: React.ComponentPr
 }
 export function DropdownMenuLabel({ className, ...props }: React.ComponentProps<typeof MenuPrimitive.Label>) {
   return <MenuPrimitive.Label className={cn('mq:px-2 mq:py-1.5 mq:text-xs mq:font-medium mq:text-muted-foreground', className)} {...props} />;
+}
+export const DropdownMenuSub = MenuPrimitive.Sub;
+export function DropdownMenuSubTrigger({ className, children, ...props }: React.ComponentProps<typeof MenuPrimitive.SubTrigger>) {
+  return <MenuPrimitive.SubTrigger className={cn('mq:flex mq:cursor-default mq:select-none mq:items-center mq:gap-2 mq:rounded-sm mq:px-2 mq:py-1.5 mq:text-sm mq:outline-none mq:data-[highlighted]:bg-accent mq:data-[state=open]:bg-accent mq:[&_svg]:size-4 mq:[&_svg]:text-muted-foreground', className)} {...props}>
+    {children}<ChevronRight className="mq:ml-auto" />
+  </MenuPrimitive.SubTrigger>;
+}
+export function DropdownMenuSubContent({ className, ...props }: React.ComponentProps<typeof MenuPrimitive.SubContent>) {
+  return (
+    <MenuPrimitive.Portal>
+      <MenuPrimitive.SubContent className={cn('marq-ui mq:z-[2147483000] mq:min-w-44 mq:overflow-hidden mq:rounded-md mq:border mq:border-border mq:bg-popover mq:p-1 mq:text-popover-foreground mq:shadow-lg', className)} {...props} />
+    </MenuPrimitive.Portal>
+  );
 }

@@ -5,7 +5,7 @@ module Marqraft.Navigation
 # added on load but never written back.
 
 using Marqraft.Document, only: [Page]
-using Marqraft.Project, only: [Site, load, pageGenerated?, pageId, pagePath, pageTitle]
+using Marqraft.Project, only: [Site, pageGenerated?, pageId, pagePath, pageTitle]
 
 # One entry of the tree. A top-level entry with listed? false stays out of
 # collection menus (an older edition after copy-collection --unlist); it is
@@ -141,7 +141,7 @@ foul saveTree(root: String, nodes: [NavNode], home: String) -> String or! String
 end
 
 foul updateNavigation(root: String, revision: String, nodes: [NavNode]) -> String or! String do
-  let site = load(root).try
+  let site = Marqraft.Project.load(root).try
   let file = Marqraft.Store.safePath(root, ".marqraft/navigation.json").try
   return Error("conflict: navigation changed on disk") if Digest.sha256(FS.File.read(file).try) != revision
   validateNavigation(nodes, site.pages, []).try

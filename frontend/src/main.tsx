@@ -8,15 +8,16 @@ import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extensions';
 import { X } from 'lucide-react';
-import { MarqAlert, MarqCode, MarqTable, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
-import { KexHighlight } from './highlight';
+import { MarqFence, MarqAlert, MarqCode, MarqTable, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
+import { CodeHighlight } from './highlight';
+import { Autocomplete } from './autocomplete';
 import { themeNodes } from './theme-nodes';
 import { api, pageID, upload } from './api';
 import { registry } from './registry';
 import { slashCommands } from './commands';
-import { bodyHost, menuHosts, navigationHosts, rememberMode, storedMode, titleHost, toolbarHost, type Mode } from './hosts';
+import { bodyHost, descriptionHost, menuHosts, navigationHosts, rememberMode, storedMode, titleHost, toolbarHost, type Mode } from './hosts';
 import { useProject } from './useProject';
-import { useDocument, useTitleEditing } from './useDocument';
+import { useDocument, useInlineText } from './useDocument';
 import { useSlashMenu } from './useSlashMenu';
 import { PageSession } from './collab';
 import { CoEditing } from './collaboration';
@@ -24,11 +25,14 @@ import type { Doc, Project } from './types';
 import { EditorToolbar } from './components/EditorToolbar';
 import { SlashMenu } from './components/SlashMenu';
 import { BlockHandle } from './components/BlockHandle';
+import { ProposalLayer } from './components/Proposal';
+import { AssistantPanel } from './components/AssistantPanel';
+import { assistantCommands } from './assist';
 import { NavigationTree } from './components/NavigationTree';
 import { MenuEditor } from './components/MenuEditor';
 import { CollectionNav } from './components/CollectionNav';
 import { ReadOnlyBar, Topbar } from './components/Topbar';
-import { ThemeSheet } from './components/ThemeSheet';
+import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { ConflictDialog } from './components/ConflictDialog';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Button } from './components/ui/button';
@@ -39,13 +43,16 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   const [message, setMessage] = useState('');
   const [mode, setMode] = useState<Mode>(() => storedMode(initialProject.project));
   const [themeOpen, setThemeOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const site = useProject(initialProject, setMessage);
   const { project } = site;
   registry.blocks = project.theme.blocks; registry.project = project;
 
   const imageInput = useRef<HTMLInputElement>(null);
   const pickImage = () => imageInput.current?.click();
-  const commands = useMemo(() => slashCommands(project.theme.commands, project.theme.blocks, pickImage), [project.theme]);
+  // The assistant's features show only when some AI provider can answer.
+  const assistant = Boolean(project.assistant?.provider);
+  const commands = useMemo(() => slashCommands(project.theme.commands, project.theme.blocks, pickImage, assistant ? assistantCommands : []), [project.theme, assistant]);
   const editorRef = useRef<Editor | null>(null);
   const slashMenu = useSlashMenu(commands, editorRef);
   // The page as everyone who has it open edits it.
@@ -54,12 +61,13 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   // The schema is fixed for the life of the page; theme block changes reload it.
   const extensions = useMemo(() => [
     // Undo comes with collaboration: each editor undoes only its own changes.
-    StarterKit.configure({ link: { openOnClick: false }, trailingNode: false, undoRedo: false }),
+    StarterKit.configure({ link: { openOnClick: false }, trailingNode: false, undoRedo: false, codeBlock: false }), MarqFence,
     CoEditing.configure({ session }),
     // Markdown images are inline: as a block node, an image inside a rendered <p> was split
     // out on parse, leaving an empty paragraph that still saved the image's source.
-    TableKit.configure({ table: false }), MarqTable, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,
+    TableKit.configure({ table: false }), MarqTable, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, CodeHighlight,
     Placeholder.configure({ placeholder: 'Write something, or type / for blocks' }),
+    Autocomplete,
     ...themeNodes(initialProject.theme.blocks),
   ], []);
 
@@ -80,7 +88,8 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     onBlur: () => setTimeout(() => { if (!document.activeElement?.closest('[data-marq-chrome]')) slashMenu.close(); }, 100),
   });
   editorRef.current = editor;
-  useTitleEditing(editor, page.editTitle);
+  useInlineText(titleHost, 'Page title', editor, page.editTitle);
+  useInlineText(descriptionHost, 'Page description', editor, page.editDescription);
   useEffect(() => { if (editor) session.start(); }, [editor]);
   useEffect(() => () => session.dispose(), []);
 
@@ -89,7 +98,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     editor?.setEditable(mode === 'edit');
     document.body.classList.toggle('marq-previewing', mode === 'preview');
     rememberMode(initialProject.project, mode);
-    if (titleHost) titleHost.contentEditable = mode === 'edit' ? 'true' : 'false';
+    for (const host of [titleHost, descriptionHost]) if (host) host.contentEditable = mode === 'edit' ? 'true' : 'false';
     if (mode === 'preview') slashMenu.close();
   }, [mode, editor]);
 
@@ -104,17 +113,19 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   const navigation = { project: liveProject, currentId: initial.id, saveNavigation: site.saveNavigation, createPage, navigate, setDraft };
 
   return <TooltipProvider delayDuration={400}>
-    <Topbar project={project} doc={doc} state={page.saveState} mode={mode} setMode={setMode} retry={page.retry} openTheme={() => setThemeOpen(true)} applyMetadata={page.applyMetadata} />
+    <Topbar project={project} doc={doc} state={page.saveState} mode={mode} setMode={setMode} retry={page.retry} openTheme={() => setThemeOpen(true)} openAssistant={assistant ? () => setAssistantOpen(true) : undefined} applyMetadata={page.applyMetadata} />
     {editor && toolbarElement && createPortal(<EditorToolbar editor={editor} commands={commands} pickImage={pickImage} />, toolbarElement)}
     {editor && bodyHost && createPortal(<EditorContent editor={editor} />, bodyHost)}
-    {editor && mode === 'edit' && createPortal(<BlockHandle editor={editor} />, document.body)}
+    {editor && mode === 'edit' && createPortal(<BlockHandle editor={editor} assistant={assistant} />, document.body)}
+    {editor && mode === 'edit' && assistant && createPortal(<ProposalLayer editor={editor} />, document.body)}
     {navigationHosts.map(host => createPortal(host.dataset.marqScope === 'collections'
       ? <CollectionNav {...navigation} />
       : <NavigationTree {...navigation} root={host.dataset.marqScope === 'collection' ? host.dataset.marqCollection || undefined : undefined} />,
       host, `navigation-${host.dataset.marqScope ?? 'all'}`))}
     {menuHosts.map(host => createPortal(<MenuEditor project={liveProject} menuId={host.dataset.marqMenu ?? ''} currentId={initial.id} save={site.saveMenus} navigate={navigate} />, host, host.dataset.marqMenu))}
     {slashMenu.slash && mode === 'edit' && <SlashMenu state={slashMenu.slash} items={slashMenu.matches} choose={slashMenu.choose} hover={slashMenu.hover} />}
-    <ThemeSheet project={project} open={themeOpen} setOpen={setThemeOpen} save={site.saveTheme} onError={setMessage} />
+    {editor && assistant && <AssistantPanel editor={editor} open={assistantOpen && mode === 'edit'} setOpen={setAssistantOpen} />}
+    <ThemeSettingsModal project={project} open={themeOpen} setOpen={setThemeOpen} save={site.saveTheme} onError={setMessage} />
     <ConflictDialog {...page.conflict} />
     <input ref={imageInput} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {
       const file = event.target.files?.[0]; event.target.value = '';

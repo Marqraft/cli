@@ -6,17 +6,21 @@
     { "id": "page", "label": "Page" },
     { "id": "landing", "label": "Landing page" }
   ],
+  "settingsPages": [
+    { "id": "appearance", "label": "Appearance", "icon": "palette" },
+    { "id": "brand", "label": "Brand", "icon": "image" }
+  ],
   "settings": [
-    { "name": "accent", "label": "Accent color", "type": "color", "default": "#b52a35" },
-    { "name": "contentWidth", "label": "Content width", "type": "number", "unit": "px", "default": "760", "min": 480, "max": 1400 },
-    { "name": "fontSize", "label": "Font size", "type": "number", "unit": "px", "default": "17", "min": 12, "max": 32 },
-    { "name": "logo", "label": "Logo", "type": "image", "default": "" }
+    { "name": "accent", "label": "Accent color", "type": "color", "default": "#b52a35", "page": "appearance", "section": "Colors" },
+    { "name": "contentWidth", "label": "Content width", "type": "number", "unit": "px", "default": "760", "min": 480, "max": 1400, "page": "appearance", "section": "Layout" },
+    { "name": "fontSize", "label": "Font size", "type": "number", "unit": "px", "default": "17", "min": 12, "max": 32, "page": "appearance", "section": "Layout" },
+    { "name": "logo", "label": "Logo", "type": "image", "default": "", "page": "brand", "section": "Identity" }
   ],
   "blocks": [
     {
       "id": "code", "element": "marqraft-code", "label": "Code", "body": "literal",
       "settings": [
-        { "name": "language", "label": "Language", "type": "enum", "default": "kex", "options": ["kex", "javascript", "typescript", "html", "css", "shell", "text"] },
+        { "name": "language", "label": "Language", "type": "enum", "default": "kex", "options": ["kex", "rust", "erlang", "ruby", "haskell", "javascript", "typescript", "html", "css", "json", "shell", "text"] },
         { "name": "filename", "label": "Filename", "type": "text", "default": "" },
         { "name": "caption", "label": "Caption", "type": "text", "default": "" },
         { "name": "line-numbers", "label": "Line numbers", "type": "toggle", "default": "false" },

@@ -79,6 +79,24 @@ describe "collections" do
     assert(!FS.File.read(navFile).try.contains?(home.id))
     assert(FS.File.read(navFile).try.contains?(old.id))
   end
+  it "renders the page description, marked for editing in place while authoring" do
+    let external = "${FS.Directory.temporary}/marqraft-description-theme-${Marqraft.Store.identifier}/description-theme"
+    Marqraft.Builtin.files("basic").entries.each do |entry|
+      let (path, source) = entry
+      let text = path == "page.html.ket" then source.replace("<marqraft-content source=\"body\"></marqraft-content>", "<p class=\"lede\"><marqraft-content source=\"description\"></marqraft-content></p><marqraft-content source=\"body\"></marqraft-content>") else source
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.File.write(external + "/" + path, text))
+    end
+    let root = "${FS.Directory.temporary}/marqraft-description-${Marqraft.Store.identifier}"
+    Marqraft.Scaffold.create(root, external).try
+    let site = Marqraft.Project.load(root).try
+    let tutorial = site.pages.find { |page| page.path == "/tutorial/" }.try
+    Marqraft.Pages.save(root, tutorial.id, tutorial.revision, tutorial.source.replace("draft: false", "draft: false\ndescription: \"Tips & tricks\"")).try
+    let loaded = Marqraft.Project.load(root).try
+    let page = Marqraft.Project.page(loaded, tutorial.id).try
+    assert(Marqraft.Theme.render(loaded, page, false).try.contains?("<p class=\"lede\">Tips &amp; tricks</p>"))
+    assert(Marqraft.Theme.render(loaded, page, true).try.contains?("<p class=\"lede\"><span data-marq-description>Tips &amp; tricks</span></p>"))
+  end
   it "gives templates the page's version, or its collection's" do
     let external = "${FS.Directory.temporary}/marqraft-version-theme-${Marqraft.Store.identifier}/version-theme"
     Marqraft.Builtin.files("basic").entries.each do |entry|

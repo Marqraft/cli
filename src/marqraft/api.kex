@@ -26,6 +26,20 @@ rescue |error|
   return failure("${error}")
 end
 
+# The assistant takes seconds to answer, so it runs in the request's own
+# process, not through the Workspace: saves and other actions go on meanwhile.
+# It changes no files; the editor applies what the author accepts.
+foul assist(root: String, payload: String) -> ReplyData do
+  let data = Marqraft.Data.object(Marqraft.Data.decode(payload).try).try
+  let site = Marqraft.Live.site(root).try
+  match Marqraft.Assistant.ask(root, Marqraft.Data.list(site.theme.get("blocks").or([])).try, data) do
+    Ok(result) => ReplyData { status: 200, body: Marqraft.Data.encode(result) }
+    Error(message) => failure(message)
+  end
+rescue |error|
+  return failure("${error}")
+end
+
 let failure(message: String) -> ReplyData do
   let status = message.contains?("conflict:") then 409 else 400
   return ReplyData { status, body: JSON.stringify({ "error": { "kind": status == 409 then "conflict" else "validation", "message": message } }) }
@@ -38,12 +52,12 @@ foul perform(root, "block", data) do
   return blockPreview(root, data)
 end
 
-# Kex code highlighted exactly as a published page renders it, for the
-# editor to show as decorations over the plain text it edits.
+# Code highlighted exactly as a published page renders it, for the editor to
+# show as decorations over the plain text it edits.
 foul perform(root, "highlight", data) do
   let code = Marqraft.Data.text(data, "code", "")
   return Error("code is too long to highlight") if code.count > 200000
-  return Ok({ "html": Markdown.Highlight.highlight(code) })
+  return Ok({ "html": Marqraft.Syntax.highlightSource(code, Marqraft.Data.text(data, "language", "kex")) })
 end
 
 foul perform(root, "save", data) do
@@ -244,7 +258,7 @@ foul metadata(root: String) -> {String: Any} or! String do
     "navigation": Marqraft.Navigation.encodeTree(Marqraft.Navigation.stripGenerated(site.navigation, Marqraft.Navigation.generatedIds(site))), "navigationRevision": Digest.sha256(navSource),
     "generatedCollections": Marqraft.Navigation.generatedCollections(site),
     "menus": menus, "menusRevision": Digest.sha256(menusSource),
-    "uploads": Marqraft.Project.uploadDirectory(site),
+    "uploads": Marqraft.Project.uploadDirectory(site), "assistant": Marqraft.Assistant.describe,
     "settingsRevision": Digest.sha256(configSource), "themeRevision": Digest.sha256(fingerprint) })
 end
 

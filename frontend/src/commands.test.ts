@@ -19,7 +19,7 @@ describe('slash command registry', () => {
     expect(filterCommands(items, 'zzz')).toEqual([]);
   });
   it('starts blocks with content matching their body kind and default settings', () => {
-    expect(blockContent(code)).toMatchObject({ type: 'marqCode', attrs: { settings: { language: 'kex' } } });
+    expect(blockContent(code)).toMatchObject({ type: 'codeBlock', attrs: { language: 'kex' } });
     expect(blockContent(callout)).toMatchObject({ type: 'theme_callout', content: [{ type: 'paragraph' }] });
   });
 });

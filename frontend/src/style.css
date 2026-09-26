@@ -106,9 +106,38 @@ body.marq-previewing:has(#marq-chrome) { padding-top: 48px; }
 .marq-document p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #a1a1aa; float: left; height: 0; pointer-events: none; }
 .marq-document [data-node-view-content] { white-space: inherit; }
 .marq-code [data-node-view-content] { white-space: pre-wrap; }
+/* A Code block's filename and caption are typed in place: bare inputs,
+   unstyled with no specificity so they take the theme's styling of the bar's
+   filename and of the caption. An empty caption lies over the space under
+   the window, so showing it on hover or while editing never moves the page. */
+:where(.marq-code .marq-inline-field) { all: unset; font: inherit; color: inherit; letter-spacing: inherit; min-width: 4ch; }
+:where(.marq-code .marq-inline-field)::placeholder { color: inherit; opacity: 0.55; }
+:where(.marq-code-caption .marq-inline-field) { width: 100%; }
+:where(select.marq-inline-field) { cursor: pointer; }
+/* Preview shows the bar as published: the filename, or else the language as a
+   label (nothing for plain text), and no empty caption. */
+body.marq-previewing .marq-code-file:placeholder-shown,
+body.marq-previewing .marq-code-file:not(:placeholder-shown) ~ select.marq-code-language,
+body.marq-previewing select.marq-code-language:has(option[value=""]:checked),
+body.marq-previewing select.marq-code-language:has(option[value="text"]:checked),
+body.marq-previewing .marq-code-caption[data-empty="true"] { display: none; }
+body.marq-previewing select.marq-code-language { pointer-events: none; appearance: none; }
+.marq-code-caption[data-empty="true"] { position: absolute; left: 0; right: 0; top: 100%; margin: 0.3rem 0 0; }
+.marq-code:not(:hover):not(:focus-within) .marq-code-caption[data-empty="true"] { visibility: hidden; }
 .marq-document .ProseMirror-gapcursor::after { border-top-color: currentColor; }
+/* The block an AI proposal or request is about, and the proposal itself. */
+.marq-ai-target { outline: 2px dashed #a78bfa; outline-offset: 4px; border-radius: 4px; }
+.marq-ai-preview { min-height: 0; }
+/* The theme's body container, reused for a preview: its content styles, none of its layout. */
+.marq-ai-preview > .marq-ai-frame { display: block; position: static; margin: 0; padding: 0; width: auto; max-width: none; min-height: 0; border: 0; box-shadow: none; background: transparent; }
+/* An autocomplete suggestion, after the caret. */
+.marq-ghost { color: #a1a1aa; pointer-events: none; }
+.marq-ai-frame > :first-child { margin-top: .5rem; }
+.marq-ai-frame > :last-child { margin-bottom: .5rem; }
 [data-marq-title][contenteditable="true"] { outline: none; }
 [data-marq-title][contenteditable="true"]:empty::before { content: "Untitled"; color: #a1a1aa; }
+[data-marq-description][contenteditable="true"] { outline: none; }
+[data-marq-description][contenteditable="true"]:empty::before { content: "Add a description"; color: #a1a1aa; }
 .marq-block { position: relative; }
 @layer marq-state {
   .marq-block-bar, .marq-nav-actions, .marq-menu-actions { opacity: 0 !important; transition: opacity .12s; }

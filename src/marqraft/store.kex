@@ -3,10 +3,8 @@ module Marqraft.Store
 using Digest
 using FS
 
-# 32 random bytes as lowercase hex, from the BEAM's CSPRNG rather than a process.
-foul identifier -> String do
-  return "${BEAM.binary.encode_hex(BEAM.crypto.strong_rand_bytes(32), :lowercase)}"
-end
+# 32 random bytes as lowercase hex, from the OS CSPRNG.
+foul identifier -> String = Random.token(32)
 
 # An absolute, normalized directory with no symlink on the way is already its
 # real path; only other paths pay for a realpath process.
@@ -25,10 +23,9 @@ let relative?(path: String) -> Bool do
   return !path.split("/").any? { |part| part == ".." || part == "." || part == "" }
 end
 
-# lstat-style check without a process: read_link succeeds only on a symlink,
-# dangling or not.
+# The link itself, dangling or not, from one lstat.
 foul symlink?(path: String) -> Bool do
-  return BEAM.erlang.element(1, BEAM.file.read_link(path)) == :ok
+  return FS.File.info(path).map { |info| info.kind == :symlink }.or(false)
 end
 
 # Whether any existing component of base/parts is a symlink.

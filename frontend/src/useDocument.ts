@@ -3,13 +3,13 @@ import { generateJSON, type AnyExtension, type Editor } from '@tiptap/core';
 import { api } from './api';
 import { preserveSlices, replaceBody, serialize } from './format';
 import { SaveQueue, type SaveState } from './save';
-import { titleHost } from './hosts';
+import { descriptionHost, titleHost } from './hosts';
 import { onSiteChange } from './live';
 import type { PageSession } from './collab';
 import type { Doc, Project } from './types';
 
-type Metadata = { title: string; path: string; draft: boolean; template: string; version: string };
-const metadataFields: (keyof Metadata)[] = ['title', 'path', 'draft', 'template', 'version'];
+type Metadata = { title: string; description: string; path: string; draft: boolean; template: string; version: string };
+const metadataFields: (keyof Metadata)[] = ['title', 'description', 'path', 'draft', 'template', 'version'];
 
 type Options = {
   initial: Doc;
@@ -21,7 +21,7 @@ type Options = {
   projectRef: MutableRefObject<Project>;
 };
 
-const metadataOf = (page: Doc): Metadata => ({ title: page.title, path: page.path, draft: page.draft, template: page.template, version: page.version ?? '' });
+const metadataOf = (page: Doc): Metadata => ({ title: page.title, description: page.description ?? '', path: page.path, draft: page.draft, template: page.template, version: page.version ?? '' });
 
 /**
  * The open page, edited together with every other editor that has it open
@@ -91,7 +91,8 @@ export function useDocument({ initial, session, editorRef, extensions, setMessag
       }
       metadata.current = next;
       setDoc(d => ({ ...d, ...next }));
-      if (titleHost && document.activeElement !== titleHost && titleHost.textContent !== next.title) titleHost.textContent = next.title;
+      showText(titleHost, next.title);
+      showText(descriptionHost, next.description);
       changed();
     };
     session.meta.observe(applyMeta);
@@ -157,15 +158,17 @@ export function useDocument({ initial, session, editorRef, extensions, setMessag
     return () => { stopped = true; stop(); };
   }, []);
 
-  /** Title, path, draft, template or version, for every editor on the page. */
+  /** Title, description, path, draft, template or version, for every editor on the page. */
   const applyMetadata = (field: keyof Metadata, value: string | boolean) => {
     session.meta.set(field, value);
-    if (field === 'title' && titleHost && titleHost.textContent !== value) titleHost.textContent = String(value);
-    if (field !== 'title') void queue.current?.flush();
+    if (field === 'title') showText(titleHost, String(value), true);
+    if (field === 'description') showText(descriptionHost, String(value), true);
+    if (field !== 'title' && field !== 'description') void queue.current?.flush();
   };
 
-  /** The title as typed in the theme's own heading. */
+  /** The title and description as typed in place, in the theme's own elements. */
   const editTitle = (title: string) => session.meta.set('title', title);
+  const editDescription = (description: string) => session.meta.set('description', description);
 
   /** Leaves for another page once everything is saved. */
   const navigate = async (path: string) => {
@@ -194,20 +197,27 @@ export function useDocument({ initial, session, editorRef, extensions, setMessag
     download: () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([local], { type: 'text/markdown' })); link.download = 'recovered.md'; link.click(); URL.revokeObjectURL(link.href); },
   };
 
-  return { doc, saveState, saver, changed, composition, applyMetadata, editTitle, navigate, retry, conflict, setDisk };
+  return { doc, saveState, saver, changed, composition, applyMetadata, editTitle, editDescription, navigate, retry, conflict, setDisk };
 }
 
-/** The page title is edited in place, inside the theme's own heading. */
-export function useTitleEditing(editor: Editor | null, editTitle: (title: string) => void) {
-  const editTitleRef = useRef(editTitle); editTitleRef.current = editTitle;
+/** Shows a field's text in its host, unless the author is typing there (or `force`). */
+function showText(host: HTMLElement | null, text: string, force = false) {
+  if (host && (force || document.activeElement !== host) && host.textContent !== text) host.textContent = text;
+}
+
+/**
+ * Plain text edited in place, inside the theme's own element: the title's
+ * heading, or the element showing the description. Enter moves on to the body.
+ */
+export function useInlineText(host: HTMLElement | null, label: string, editor: Editor | null, edit: (text: string) => void) {
+  const editRef = useRef(edit); editRef.current = edit;
   useEffect(() => {
-    const host = titleHost;
     if (!host || !editor) return;
-    host.setAttribute('aria-label', 'Page title'); host.spellcheck = true;
-    const input = () => editTitleRef.current(host.textContent ?? '');
+    host.setAttribute('aria-label', label); host.spellcheck = true;
+    const input = () => editRef.current(host.textContent ?? '');
     const keydown = (event: KeyboardEvent) => { if (event.key === 'Enter') { event.preventDefault(); editor.commands.focus('start'); } };
     const paste = (event: ClipboardEvent) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData?.getData('text/plain').replace(/\s+/g, ' ') ?? ''); };
     host.addEventListener('input', input); host.addEventListener('keydown', keydown); host.addEventListener('paste', paste);
     return () => { host.removeEventListener('input', input); host.removeEventListener('keydown', keydown); host.removeEventListener('paste', paste); };
-  }, [editor]);
+  }, [host, editor]);
 }

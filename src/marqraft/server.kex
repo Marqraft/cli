@@ -13,7 +13,7 @@ foul start(directory: String, port: Integer) -> Void or! String do
   let token = Marqraft.Store.identifier
   let workspace = Process.spawn(Workspace { root })
   Marqraft.Live.refresh(root).try
-  let listeners = Process.spawn(Marqraft.Live.Listeners {})
+  let hub = Process.spawn(Marqraft.Live.Hub {})
   # Twice a second: when the project's files changed on disk, reload the
   # site and tell every open editor. Mounted output is checked every third
   # second: it is large, and changes only when it is regenerated.
@@ -30,7 +30,7 @@ foul start(directory: String, port: Integer) -> Void or! String do
         authored = nowAuthored
         everything = tick % 6 == 0 then nowEverything else Marqraft.Live.fingerprint(root, true)
         if Marqraft.Live.refresh(root).ok?
-          listeners.broadcast(Marqraft.Live.changed)
+          hub.broadcast(Marqraft.Live.changed)
         end
       end
     end
@@ -62,7 +62,7 @@ foul start(directory: String, port: Integer) -> Void or! String do
           # A successful action changed files: the next request, and every
           # open editor, sees the site as it is now.
           if result.status == 200 && Marqraft.Live.refresh(root).ok?
-            listeners.broadcast(Marqraft.Live.changed)
+            hub.broadcast(Marqraft.Live.changed)
           end
           jsonReply(result.status, result.body)
         end
@@ -70,20 +70,7 @@ foul start(directory: String, port: Integer) -> Void or! String do
     end
     # Open editors hear here when the site changes, instead of polling.
     ws "/__marqraft/live" do |env, socket|
-      if !allowedHost?(env, port)
-        socket.close
-      else
-        let id = Marqraft.Store.identifier
-        listeners.join(id, socket)
-        loop do
-          match socket.receiveMessage do
-            Ok(CloseMessage(_, _)) => break
-            Ok(_) => Void
-            Error(_) => break
-          end
-        end
-        listeners.leave(id)
-      end
+      allowedHost?(env, port) then Marqraft.Live.serveEditor(hub, socket) else socket.close
     end
     get "/__marqraft/editor.js" do |_|
       Response.Text { body: Kex.embed("../../assets/editor.js"), headers: noCache.add("Content-Type", "text/javascript; charset=utf-8").try }

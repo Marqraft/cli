@@ -2,15 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { generateJSON, type Editor } from '@tiptap/core';
+import type { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extensions';
 import { X } from 'lucide-react';
-import { MarqAlert, MarqCode, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
+import { MarqAlert, MarqCode, MarqTable, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
 import { KexHighlight } from './highlight';
-import { preserveSlices } from './format';
 import { themeNodes } from './theme-nodes';
 import { api, pageID, upload } from './api';
 import { registry } from './registry';
@@ -19,9 +18,12 @@ import { bodyHost, menuHosts, navigationHosts, rememberMode, storedMode, titleHo
 import { useProject } from './useProject';
 import { useDocument, useTitleEditing } from './useDocument';
 import { useSlashMenu } from './useSlashMenu';
+import { PageSession } from './collab';
+import { CoEditing } from './collaboration';
 import type { Doc, Project } from './types';
 import { EditorToolbar } from './components/EditorToolbar';
 import { SlashMenu } from './components/SlashMenu';
+import { BlockHandle } from './components/BlockHandle';
 import { NavigationTree } from './components/NavigationTree';
 import { MenuEditor } from './components/MenuEditor';
 import { CollectionNav } from './components/CollectionNav';
@@ -46,22 +48,27 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   const commands = useMemo(() => slashCommands(project.theme.commands, project.theme.blocks, pickImage), [project.theme]);
   const editorRef = useRef<Editor | null>(null);
   const slashMenu = useSlashMenu(commands, editorRef);
+  // The page as everyone who has it open edits it.
+  const session = useMemo(() => new PageSession(initial.id), []);
 
   // The schema is fixed for the life of the page; theme block changes reload it.
   const extensions = useMemo(() => [
-    StarterKit.configure({ link: { openOnClick: false }, trailingNode: false }),
+    // Undo comes with collaboration: each editor undoes only its own changes.
+    StarterKit.configure({ link: { openOnClick: false }, trailingNode: false, undoRedo: false }),
+    CoEditing.configure({ session }),
     // Markdown images are inline: as a block node, an image inside a rendered <p> was split
     // out on parse, leaving an empty paragraph that still saved the image's source.
-    TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,
+    TableKit.configure({ table: false }), MarqTable, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,
     Placeholder.configure({ placeholder: 'Write something, or type / for blocks' }),
     ...themeNodes(initialProject.theme.blocks),
   ], []);
 
-  const page = useDocument({ initial, editorRef, extensions, setMessage, setProject: site.setProject, projectRef: site.projectRef });
+  const page = useDocument({ initial, session, editorRef, extensions, setMessage, setProject: site.setProject, projectRef: site.projectRef });
 
+  // The content comes from the session: seeded from the page by the first
+  // editor on it, or received from the others.
   const editor = useEditor({
     extensions,
-    content: preserveSlices(generateJSON(initial.html, extensions)),
     editable: storedMode(initialProject.project) === 'edit',
     editorProps: {
       attributes: { 'aria-label': 'Page content', class: 'marq-document' },
@@ -74,6 +81,8 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   });
   editorRef.current = editor;
   useTitleEditing(editor, page.editTitle);
+  useEffect(() => { if (editor) session.start(); }, [editor]);
+  useEffect(() => () => session.dispose(), []);
 
   // Edit versus preview: preview shows the page as readers will see it.
   useEffect(() => {
@@ -98,6 +107,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     <Topbar project={project} doc={doc} state={page.saveState} mode={mode} setMode={setMode} retry={page.retry} openTheme={() => setThemeOpen(true)} applyMetadata={page.applyMetadata} />
     {editor && toolbarElement && createPortal(<EditorToolbar editor={editor} commands={commands} pickImage={pickImage} />, toolbarElement)}
     {editor && bodyHost && createPortal(<EditorContent editor={editor} />, bodyHost)}
+    {editor && mode === 'edit' && createPortal(<BlockHandle editor={editor} />, document.body)}
     {navigationHosts.map(host => createPortal(host.dataset.marqScope === 'collections'
       ? <CollectionNav {...navigation} />
       : <NavigationTree {...navigation} root={host.dataset.marqScope === 'collection' ? host.dataset.marqCollection || undefined : undefined} />,

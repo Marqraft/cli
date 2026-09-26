@@ -35,6 +35,14 @@ const caretToEnd = async locator => {
   });
   await locator.page().waitForTimeout(150);
 };
+const caretToStart = async locator => {
+  await locator.click();
+  await locator.evaluate(element => {
+    const range = document.createRange(); range.selectNodeContents(element); range.collapse(true);
+    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  });
+  await locator.page().waitForTimeout(150);
+};
 const saved = async page => { await page.waitForTimeout(900); await page.getByRole('status').filter({ hasText: 'Saved' }).waitFor({ timeout: 20000 }); };
 const noDialog = async page => assert.equal(await page.getByRole('dialog', { name: conflictTitle }).count(), 0, 'autosave must not conflict with its own write');
 const ready = async page => { await page.getByRole('toolbar', { name: 'Formatting' }).waitFor({ timeout: 30000 }); };
@@ -107,6 +115,28 @@ try {
   assert((await readFile(site + '/content/index.md', 'utf8')).includes('> [!WARNING]\n> Editable nested content'));
   await page.reload(); await ready(page);
   assert((await page.locator('.site-content .markdown-alert-warning').textContent()).includes('Editable nested content'));
+
+  step('every block has a handle that moves it between blocks, never into one');
+  await caretToEnd(page.locator('.site-content p').first()); await page.keyboard.press('Enter');
+  await page.keyboard.type('Handled block');
+  const handled = page.locator('.site-content .ProseMirror > p', { hasText: 'Handled block' });
+  const blocks = () => page.locator('.site-content .ProseMirror > *').evaluateAll(elements => elements.map(element => element.textContent));
+  const before = await blocks();
+  await handled.hover();
+  await page.getByRole('button', { name: 'Block options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  const after = await blocks();
+  assert.equal(after.indexOf('Handled block'), before.indexOf('Handled block') - 1);
+  // Dropped inside the lower half of the alert: after the alert, not in it.
+  await handled.hover();
+  const box = await alert.boundingBox();
+  const grip = await page.getByRole('button', { name: 'Block options', exact: true }).boundingBox();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + 40, box.y + box.height - 8, { steps: 8 }); await page.mouse.up();
+  await saved(page); await noDialog(page);
+  const moved = await readFile(site + '/content/index.md', 'utf8');
+  // (The paragraph carries on the bold of the one it was split from.)
+  assert(/> Editable nested content\n\n(\*\*)?Handled block/.test(moved), moved);
 
   step('theme settings preview live and persist');
   await page.getByRole('button', { name: 'Theme', exact: true }).click();
@@ -185,6 +215,47 @@ try {
   await page.waitForEvent('load'); await ready(page);
   assert((await readFile(site + '/content/index.md', 'utf8')).includes('unsaved local work'));
   await page.screenshot({ path: temporary + '/authoring.png', fullPage: false });
+
+  step('two editors type into one paragraph at once, see each other, and save it once');
+  const coEditor = async () => {
+    const other = await (await browser.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
+    other.on('pageerror', error => { errors.push(error); console.error('PAGE ERROR:', error); });
+    await other.goto(`${base}/tutorial/`); await ready(other);
+    return other;
+  };
+  const alice = await coEditor();
+  const bob = await coEditor();
+  const paragraph = editor => editor.locator('.site-content .ProseMirror p').first();
+  // Another editor's caret sits inside the paragraph as a labelled widget.
+  const words = editor => paragraph(editor).evaluate(element => {
+    const copy = element.cloneNode(true); copy.querySelectorAll('.collaboration-carets__caret').forEach(caret => caret.remove());
+    return copy.textContent;
+  });
+  await caretToEnd(paragraph(alice));
+  await caretToStart(paragraph(bob));
+  await Promise.all([alice.keyboard.type(' Written by Alice.', { delay: 40 }), bob.keyboard.type('Bob was here. ', { delay: 40 })]);
+  for (const editor of [alice, bob]) {
+    await editor.waitForFunction(() => { const text = document.querySelector('.site-content .ProseMirror p')?.textContent ?? ''; return text.includes('Written by Alice.') && text.includes('Bob was here.'); });
+  }
+  assert.equal(await words(alice), await words(bob), 'both editors converge on the same paragraph');
+  assert(await alice.locator('.collaboration-carets__caret').count() > 0, "Alice sees Bob's caret");
+  assert(await bob.locator('.collaboration-carets__caret').count() > 0, "Bob sees Alice's caret");
+  await saved(alice); await noDialog(alice); await noDialog(bob);
+  const tutorial = await readFile(site + '/content/tutorial/index.md', 'utf8');
+  assert.equal(tutorial.split('Written by Alice.').length - 1, 1, "Alice's words are saved once");
+  assert.equal(tutorial.split('Bob was here.').length - 1, 1, "Bob's words are saved once");
+
+  step('when the saving editor leaves, another one on the page takes over');
+  await alice.context().close();
+  await caretToEnd(paragraph(bob)); await bob.keyboard.type(' Saved without Alice.');
+  let handedOver = false;
+  for (let attempt = 0; attempt < 60 && !handedOver; attempt++) {
+    await bob.waitForTimeout(250);
+    handedOver = (await readFile(site + '/content/tutorial/index.md', 'utf8')).includes('Saved without Alice.');
+  }
+  assert(handedOver, 'the remaining editor saved the page');
+  await noDialog(bob);
+  await bob.context().close();
 
   step('static build has no authoring runtime and omits drafts');
   marq('build', site);

@@ -1,0 +1,79 @@
+using Rodolfo
+using Net.HTTP.WebSocket, only: [WebSocket, Connection, Message, Text, BinaryMessage]
+
+describe "live editing sessions" do
+  it "seeds a page from its first editor, relays updates and cursors, and hands on the saver" do
+    let hub = Process.spawn(Marqraft.Live.Hub {})
+    let running = Rodolfo.router do
+      ws "/live" do |_, socket|
+        Marqraft.Live.serveEditor(hub, socket)
+      end
+    end.background("127.0.0.1", 0).try
+    let url = "ws://127.0.0.1:${running.localAddress.port.value}/live"
+
+    # The first editor on a page seeds it and saves it; the next one does neither.
+    let first = WebSocket.connect(url).try
+    first.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
+    assert(text(first) == "{\"type\":\"joined\",\"seed\":true,\"saver\":true,\"instance\":1}")
+    let second = WebSocket.connect(url).try
+    second.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
+    assert(text(second) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false,\"instance\":2}")
+
+    # Document updates (0) and cursors (1) reach the other editor on the page.
+    assert(Marqraft.Live.deliver(first, binary("00aa")))
+    assert(bytes(second) == "00aa")
+    assert(Marqraft.Live.deliver(second, binary("01bb")))
+    assert(bytes(first) == "01bb")
+
+    # An editor on another page hears nothing of this one.
+    let elsewhere = WebSocket.connect(url).try
+    elsewhere.send(Text("{\"type\": \"join\", \"page\": \"other\"}")).try
+    assert(text(elsewhere) == "{\"type\":\"joined\",\"seed\":true,\"saver\":true,\"instance\":1}")
+
+    # The saver leaving hands the page to the editor still on it.
+    first.close
+    assert(text(second) == "{\"type\":\"saver\"}")
+
+    # A late editor gets the kept updates, not the cursors, and the lowest
+    # free number: the first editor's, since it left.
+    let late = WebSocket.connect(url).try
+    late.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
+    assert(text(late) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false,\"instance\":1}")
+    assert(bytes(late) == "00aa")
+
+    # The saver's compacted document (2) replaces the kept updates; another
+    # editor's is ignored.
+    assert(Marqraft.Live.deliver(late, binary("02ee")))
+    assert(Marqraft.Live.deliver(second, binary("02cc")))
+    let after = WebSocket.connect(url).try
+    after.send(Text("{\"type\": \"join\", \"page\": \"intro\"}")).try
+    assert(text(after) == "{\"type\":\"joined\",\"seed\":false,\"saver\":false,\"instance\":3}")
+    assert(bytes(after) == "02cc")
+
+    second.close
+    late.close
+    after.close
+    elsewhere.close
+    running.stop.try
+  end
+end
+
+# A binary frame from its hex digits.
+let binary(hex: String) -> Message do
+  let message: Message = BinaryMessage(Binary.fromHex(hex).or(Binary.empty))
+  return message
+end
+
+foul text(socket: Connection) -> String do
+  match socket.receiveMessage.try do
+    Text(value) => value
+    _ => ""
+  end
+end
+
+foul bytes(socket: Connection) -> String do
+  match socket.receiveMessage.try do
+    BinaryMessage(value) => value.hex
+    _ => ""
+  end
+end

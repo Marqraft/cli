@@ -1,10 +1,14 @@
 import React from 'react';
 import { Node, Extension, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, NodeViewContent, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react';
-import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, BetweenHorizontalStart, BetweenVerticalStart, Columns3, PanelTop, Plus, Rows3, TableProperties, X } from 'lucide-react';
+import { Table } from '@tiptap/extension-table';
+import type { Editor } from '@tiptap/core';
 import { BlockBar } from './components/BlockBar';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
+import { Tooltip } from './components/ui/tooltip';
 import { blockDefinition } from './registry';
 
 const settings = (element: HTMLElement, name: string) => {
@@ -97,6 +101,48 @@ function SourceView(props: NodeViewProps) {
       onChange={event => props.updateAttributes({ source: event.target.value })} />
   </NodeViewWrapper>;
 }
+
+// A table as a block: the same hover bar as other blocks, with the rows and
+// columns around the cursor added or removed from it. The table sits in the
+// same .table-scroll wrapper published pages use, so the theme styles both.
+function TableView(props: NodeViewProps) {
+  const { editor, getPos } = props;
+  // Rows and columns change around the cursor; a cursor outside this table
+  // is moved into its first cell first.
+  const run = (change: (chain: ReturnType<Editor['chain']>) => ReturnType<Editor['chain']>) => {
+    const pos = getPos(); if (pos === undefined) return;
+    const { $from } = editor.state.selection;
+    const inside = Array.from({ length: $from.depth }, (_, index) => index + 1).some(depth => $from.node(depth).type.name === 'table' && $from.before(depth) === pos);
+    let chain = editor.chain().focus();
+    if (!inside) chain = chain.setTextSelection(pos + 4);
+    change(chain).run();
+  };
+  const item = (label: string, icon: React.ReactNode, change: Parameters<typeof run>[0]) =>
+    <DropdownMenuItem onSelect={() => run(change)}>{icon}{label}</DropdownMenuItem>;
+  return <NodeViewWrapper className="marq-block" data-testid="table-block">
+    <BlockBar editor={editor} getPos={getPos} label="Table" fields={[]} settings={{}}>
+      <DropdownMenu>
+        <Tooltip label="Rows and columns"><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="Rows and columns"><TableProperties /></Button></DropdownMenuTrigger></Tooltip>
+        <DropdownMenuContent align="end">
+          {item('Row above', <BetweenHorizontalStart />, chain => chain.addRowBefore())}
+          {item('Row below', <Rows3 />, chain => chain.addRowAfter())}
+          {item('Column left', <BetweenVerticalStart />, chain => chain.addColumnBefore())}
+          {item('Column right', <Columns3 />, chain => chain.addColumnAfter())}
+          <DropdownMenuSeparator />
+          {item('Delete row', <Rows3 />, chain => chain.deleteRow())}
+          {item('Delete column', <Columns3 />, chain => chain.deleteColumn())}
+          <DropdownMenuSeparator />
+          {item('Header row', <PanelTop />, chain => chain.toggleHeaderRow())}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </BlockBar>
+    <div className="table-scroll"><NodeViewContent as={'table' as 'div'} /></div>
+  </NodeViewWrapper>;
+}
+
+// The rows go into a tbody: TipTap puts a node view's content in an element
+// of this tag inside NodeViewContent (a div by default, invalid in a table).
+export const MarqTable = Table.extend({ addNodeView: () => ReactNodeViewRenderer(TableView, { contentDOMElementTag: 'tbody' }) });
 
 export const MarqCode = Node.create({
   name: 'marqCode', group: 'block', content: 'text*', marks: '', code: true, defining: true, draggable: true,

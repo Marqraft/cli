@@ -4,7 +4,7 @@ module Marqraft.Menus
 # and saving them.
 
 using Marqraft.Document, only: [Page]
-using Marqraft.Project, only: [Site, load]
+using Marqraft.Project, only: [Site]
 
 # The items of a theme menu: the site's own list once it has saved one,
 # otherwise the defaults the theme declares. Defaults name pages by path;
@@ -41,7 +41,7 @@ let menuMap(site: Site, ids: [String], values: {String: Any}) -> {String: Any} d
 end
 
 foul updateMenus(root: String, revision: String, menus: {String: Any}) -> String or! String do
-  let site = load(root).try
+  let site = Marqraft.Project.load(root).try
   let file = Marqraft.Store.safePath(root, ".marqraft/menus.json").try
   return Error("conflict: menus changed on disk") if Digest.sha256(FS.File.read(file).or("")) != revision
   validateMenus(menus.entries, menuIds(site), site.pages).try

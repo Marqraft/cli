@@ -405,19 +405,22 @@ end
 foul template(root: String, relative: String, context: {String: Any}) -> String or! String do
   let source = Marqraft.Store.safePath(root, relative).try
   let digest = Digest.sha256(FS.File.read(source).try).take(24)
-  let renderer = BEAM.erlang.binary_to_atom("Kex.${templateModule(digest)}")
-  loadTemplate(root, source, digest, renderer).try
-  # Through rpc so an exception in the template comes back as a value
-  # instead of taking the caller down.
-  let rendered = BEAM.rpc.call(BEAM.erlang.node(), renderer, :render, [context])
+  let renderer = loadTemplate(root, source, digest).try
+  # An exception in the template comes back as an Error, not a crash.
+  let rendered = match renderer.call(:render, [context]) do
+    Ok(value) => value
+    Error(problem) => return Error("theme render failed: ${problem}")
+  end
   return Error("theme render failed: ${rendered}") if Type.of(rendered).name != "String"
-  return Ok(rendered)
+  return Ok("${rendered}")
 end
 
 # Compiles the template on first use (the digest keys the cache, so an
-# edited template is a new module) and loads it into this VM.
-foul loadTemplate(root: String, source: String, digest: String, renderer: Any) -> Void or! String do
-  return Ok(()) if Type.of(BEAM.code.is_loaded(renderer)).name == "Tuple"
+# edited template is a new module) and loads it into this VM, once.
+foul loadTemplate(root: String, source: String, digest: String) -> Kex.LoadedModule or! String do
+  let cached: Process.Shared<Kex.LoadedModule> = Process.Shared.named("marqraft_template:${digest}")
+  let loaded: Kex.LoadedModule? = cached.get
+  return Ok(loaded.try) if loaded.set?
   let directory = ".marqraft/cache/templates-v1/${digest}"
   let cache = root + "/" + directory
   let file = templateFile(digest)
@@ -431,8 +434,14 @@ foul loadTemplate(root: String, source: String, digest: String, renderer: Any) -
     let _ = failed
   end
   # The template's body lives in the file's module, render in the named one.
-  let body = BEAM.code.load_abs(BEAM.erlang.binary_to_list("${cache}/kex_${file}"))
-  let named = BEAM.code.load_abs(BEAM.erlang.binary_to_list("${cache}/Kex.${templateModule(digest)}"))
-  return Error("cannot load compiled theme template ${source}: ${body} ${named}") if BEAM.erlang.element(1, named) != BEAM.erlang.binary_to_atom("module")
-  return Ok(())
+  match Kex.load("${cache}/kex_${file}.beam") do
+    Ok(_) => ()
+    Error(problem) => return Error("cannot load compiled theme template ${source}: ${problem}")
+  end
+  let renderer = match Kex.load("${cache}/Kex.${templateModule(digest)}.beam") do
+    Ok(loaded) => loaded
+    Error(problem) => return Error("cannot load compiled theme template ${source}: ${problem}")
+  end
+  cached.put(renderer)
+  return Ok(renderer)
 end

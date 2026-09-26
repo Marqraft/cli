@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
 import type { Node } from '@tiptap/pm/model';
 import { NodeSelection } from '@tiptap/pm/state';
-import { ArrowDown, ArrowUp, Copy, GripVertical, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, GripVertical, Languages, MessageSquareText, PenLine, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { blockActions, blockMarkdown, languages, promptToWrite, proposeForBlock, setPrompting, tones } from '../assist';
 import { Button } from './ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from './ui/dropdown-menu';
 
 type Hovered = { index: number; top: number; left: number };
 type Gap = { index: number; top: number; left: number; width: number };
@@ -37,9 +38,10 @@ function gapAt(editor: Editor, y: number): Gap | null {
 /**
  * The handle beside whichever top-level block the pointer is over — a
  * paragraph as much as a table or a theme block. Drag it to move the block
- * between two others; click it for a menu to move, duplicate or delete it.
+ * between two others; click it for a menu to move, duplicate or delete it,
+ * or, with an `assistant`, to have it rewritten.
  */
-export function BlockHandle({ editor }: { editor: Editor }) {
+export function BlockHandle({ editor, assistant }: { editor: Editor; assistant: boolean }) {
   const [hovered, setHovered] = useState<Hovered | null>(null);
   const [menu, setMenu] = useState(false);
   const [gap, setGap] = useState<Gap | null>(null);
@@ -108,6 +110,11 @@ export function BlockHandle({ editor }: { editor: Editor }) {
   const move = (by: -1 | 1) => { moveBlock(editor, index, by < 0 ? index - 1 : index + 2); setHovered(null); };
   const duplicate = () => editor.view.dispatch(editor.state.tr.insert(pos + node.nodeSize, node));
   const remove = () => { editor.view.dispatch(editor.state.tr.delete(pos, pos + node.nodeSize)); setHovered(null); };
+  // An empty paragraph has nothing to rewrite: the assistant writes into it instead.
+  const empty = node.type.name === 'paragraph' && node.content.size === 0;
+  const rewrite = (label: string, instruction: string) => proposeForBlock(label, 'replace', node, index, current => ({ task: 'rewrite', instruction, markdown: blockMarkdown(current) }));
+  const custom = () => setPrompting({ anchor: node, index, placeholder: 'Tell AI what to do with this block…', submit: instruction => rewrite(instruction, instruction) });
+  const write = () => { editor.commands.setTextSelection(pos + 1); promptToWrite(editor); };
 
   const dragStart = (event: React.DragEvent) => {
     const selection = NodeSelection.create(editor.state.doc, pos);
@@ -140,6 +147,30 @@ export function BlockHandle({ editor }: { editor: Editor }) {
             <GripVertical />
           </Button>
           <DropdownMenuContent align="start" side="left">
+            {assistant && empty && <><DropdownMenuItem onSelect={write}><Sparkles />Write with AI…</DropdownMenuItem><DropdownMenuSeparator /></>}
+            {assistant && !empty && <>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger><Sparkles />Ask AI</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {blockActions.map(action => <DropdownMenuItem key={action.id} onSelect={() => rewrite(action.label, action.instruction)}><Wand2 />{action.label}</DropdownMenuItem>)}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger><MessageSquareText />Change tone</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {tones.map(tone => <DropdownMenuItem key={tone} onSelect={() => rewrite(`${tone} tone`, `Rewrite it in a ${tone.toLowerCase()} tone.`)}>{tone}</DropdownMenuItem>)}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger><Languages />Translate</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {languages.map(language => <DropdownMenuItem key={language} onSelect={() => rewrite(`Translate to ${language}`, `Translate it into ${language}, keeping the Markdown formatting.`)}>{language}</DropdownMenuItem>)}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={custom}><PenLine />Custom instruction…</DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+            </>}
             <DropdownMenuItem disabled={index === 0} onSelect={() => move(-1)}><ArrowUp />Move up</DropdownMenuItem>
             <DropdownMenuItem disabled={index === doc.childCount - 1} onSelect={() => move(1)}><ArrowDown />Move down</DropdownMenuItem>
             <DropdownMenuItem onSelect={duplicate}><Copy />Duplicate</DropdownMenuItem>

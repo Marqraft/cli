@@ -1,0 +1,94 @@
+describe "the writing assistant" do
+  it "rewrites a block through the claude CLI with its tools off, and renders the answer" do
+    let (dir, root) = setUp("claude")
+    ENV.set("MARQ_CLAUDE", fake())
+    assert(reply(dir, "", "{\"type\":\"result\",\"is_error\":false,\"result\":\"```markdown\\nShort **and** clear.\\n```\"}"))
+    let answer = Marqraft.Assistant.ask(root, [], { "task": "rewrite", "instruction": "Shorten it", "markdown": "A long, long sentence.", "title": "Intro" }).try
+    assert(Marqraft.Data.text(answer, "markdown", "") == "Short **and** clear.")
+    assert(Marqraft.Data.text(answer, "html", "").contains?("<strong>and</strong>"))
+    let arguments = FS.File.read(dir + "/args.1").try.lines
+    assert(arguments.contains?("--safe-mode") && arguments.contains?("--strict-mcp-config") && arguments.contains?("sonnet"))
+    let tools = arguments.findIndex { |argument| argument == "--tools" }.try
+    assert(arguments.get(tools + 1).or("x") == "")
+    assert(FS.File.read(dir + "/args.1").try.contains?("<block>\nA long, long sentence.\n</block>"))
+
+    # An error from the CLI is the answer's error, never inserted text.
+    assert(reply(dir, "", "{\"type\":\"result\",\"is_error\":true,\"result\":\"Not logged in\"}"))
+    assert(!Marqraft.Assistant.ask(root, [], { "task": "rewrite", "instruction": "Shorten it", "markdown": "Text." }).ok?)
+    tearDown()
+  end
+
+  it "fills a configured command's arguments and reads its reply from standard output" do
+    let (dir, root) = setUp("command")
+    ENV.set("MARQ_CLAUDE", "${dir}/no-such-claude")
+    let config = dir + "/assistant.json"
+    assert(FS.File.write(config, "{ \"provider\": \"local\", \"models\": { \"fast\": \"tiny\" }, \"providers\": { \"local\": { \"name\": \"Local\", \"command\": \"${fake()}\", \"args\": [\"run\", \"--model={model}\", \"{prompt}\"] } } }"))
+    ENV.set("MARQ_ASSISTANT_CONFIG", config)
+    assert(reply(dir, "", " and then some.\n"))
+    let answer = Marqraft.Assistant.ask(root, [], { "task": "complete", "before": "It began", "after": "" }).try
+    assert(Marqraft.Data.text(answer, "text", "") == "and then some.")
+    let arguments = FS.File.read(dir + "/args.1").try.lines
+    assert(arguments.get(0).or("") == "run" && arguments.get(1).or("") == "--model=tiny")
+    assert(arguments.get(2).or("").contains?("It began<cursor/>"))
+
+    let described = Marqraft.Assistant.describe
+    assert(Marqraft.Data.text(described, "provider", "") == "local")
+    let listed = Marqraft.Data.list(described.get("providers").or([])).try
+    assert(listed.map { |item| Marqraft.Data.text(item, "id", "") } == ["claude", "local"])
+    assert(!Marqraft.Data.flag(listed.first.try, "available", true))
+    tearDown()
+  end
+
+  it "asks again when a chat reply is not usable, and checks the edits it suggests" do
+    let (dir, root) = setUp("chat")
+    ENV.set("MARQ_CLAUDE", fake())
+    assert(reply(dir, "1", envelope("Sure! Here is what I would change.")))
+    assert(reply(dir, "2", envelope("```json\\n{\\\"answer\\\": \\\"Tightened it.\\\", \\\"edits\\\": [{\\\"op\\\": \\\"replace\\\", \\\"block\\\": 2, \\\"markdown\\\": \\\"## Setup\\\"}]}\\n```")))
+    let answer = Marqraft.Assistant.ask(root, [], { "task": "chat", "outline": "[1] Hello\n[2] Set up\n[3] Bye", "blocks": 3, "messages": [{ "role": "user", "content": "Make block 2 a heading" }] }).try
+    assert(Marqraft.Data.text(answer, "answer", "") == "Tightened it.")
+    let edit = Marqraft.Data.list(answer.get("edits").or([])).try.first.try
+    assert(Marqraft.Data.integer(edit, "block", 0) == 2)
+    assert(Marqraft.Data.text(edit, "html", "").contains?("<h2"))
+    assert(FS.File.read(dir + "/args.2").try.contains?("was not usable"))
+
+    # An edit to a block the page does not have is refused, even when asked twice.
+    let _ = FS.File.delete(dir + "/count")
+    assert(reply(dir, "1", envelope("{\\\"answer\\\": \\\"x\\\", \\\"edits\\\": [{\\\"op\\\": \\\"delete\\\", \\\"block\\\": 9}]}")))
+    assert(reply(dir, "2", envelope("{\\\"answer\\\": \\\"x\\\", \\\"edits\\\": [{\\\"op\\\": \\\"delete\\\", \\\"block\\\": 9}]}")))
+    let refused = Marqraft.Assistant.ask(root, [], { "task": "chat", "outline": "[1] Hello", "blocks": 1, "messages": [{ "role": "user", "content": "Delete it" }] })
+    assert(!refused.ok?)
+    tearDown()
+  end
+
+  it "says so when no provider is available" do
+    let (dir, root) = setUp("none")
+    ENV.set("MARQ_CLAUDE", "${dir}/no-such-claude")
+    assert(Marqraft.Data.text(Marqraft.Assistant.describe, "provider", "x") == "")
+    match Marqraft.Assistant.ask(root, [], { "task": "rewrite", "instruction": "Shorten", "markdown": "Text." }) do
+      Ok(_) => assert(false)
+      Error(message) => assert(message.contains?("no AI provider"))
+    end
+    tearDown()
+  end
+end
+
+# Specs run from the project root.
+foul fake() -> String = "${FS.Directory.current}/scripts/fake-assistant.sh"
+
+foul setUp(name: String) -> (String, String) do
+  let dir = "${FS.Directory.temporary}/marqraft-assistant-${name}-${Marqraft.Store.identifier}"
+  assert(FS.Directory.create(dir))
+  ENV.set("FAKE_ASSISTANT", dir)
+  ENV.set("MARQ_ASSISTANT_CONFIG", dir + "/none.json")
+  let _ = ENV.unset("MARQ_ASSISTANT_PROVIDER")
+  return (dir, dir)
+end
+
+foul tearDown() -> Void do
+  ["MARQ_CLAUDE", "MARQ_ASSISTANT_CONFIG", "FAKE_ASSISTANT"].each { |name| let _ = ENV.unset(name) }
+end
+
+foul reply(dir: String, n: String, text: String) -> Bool = FS.File.write(dir + (n == "" then "/reply" else "/reply.${n}"), text)
+
+# A claude CLI result holding `text`, already escaped for a JSON string.
+let envelope(text: String) -> String = "{\"type\":\"result\",\"is_error\":false,\"result\":\"${text}\"}"

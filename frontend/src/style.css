@@ -125,6 +125,14 @@ body.marq-previewing select.marq-code-language { pointer-events: none; appearanc
 .marq-code-caption[data-empty="true"] { position: absolute; left: 0; right: 0; top: 100%; margin: 0.3rem 0 0; }
 .marq-code:not(:hover):not(:focus-within) .marq-code-caption[data-empty="true"] { visibility: hidden; }
 .marq-document .ProseMirror-gapcursor::after { border-top-color: currentColor; }
+/* The block an AI proposal or request is about, and the proposal itself. */
+.marq-ai-target { outline: 2px dashed #a78bfa; outline-offset: 4px; border-radius: 4px; }
+.marq-ai-preview { min-height: 0; font-size: 0.95em; }
+.marq-ai-preview :is(h1, h2, h3, h4) { font-weight: 600; font-size: 1.15em; margin-block: .5rem; }
+/* An autocomplete suggestion, after the caret. */
+.marq-ghost { color: #a1a1aa; pointer-events: none; }
+.marq-ai-preview > :first-child { margin-top: .5rem; }
+.marq-ai-preview > :last-child { margin-bottom: .5rem; }
 [data-marq-title][contenteditable="true"] { outline: none; }
 [data-marq-title][contenteditable="true"]:empty::before { content: "Untitled"; color: #a1a1aa; }
 [data-marq-description][contenteditable="true"] { outline: none; }

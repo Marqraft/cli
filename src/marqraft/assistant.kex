@@ -1,0 +1,254 @@
+module Marqraft.Assistant
+
+# The writing assistant: rewrites a block, drafts new ones, continues the
+# text, answers questions about the page and suggests edits to it.
+#
+# What to ask for, and what to do with the answer, is the same whichever
+# model answers; only sending a prompt and reading back text depends on the
+# provider. A provider is either the local `claude` CLI or any command that
+# takes a prompt and prints a reply (Codex, OpenCode, `llm`, a local model
+# runner), configured per machine in ~/.config/marqraft/assistant.json:
+#
+#   { "provider": "codex",
+#     "models": { "fast": "haiku", "smart": "sonnet" },
+#     "providers": { "codex": { "command": "codex", "args": ["exec", "{prompt}"] } } }
+#
+# In `args`, {prompt}, {system} and {model} are replaced by the request's
+# prompt, system prompt and model. MARQ_ASSISTANT_PROVIDER overrides the
+# chosen provider, MARQ_ASSISTANT_CONFIG the config file and MARQ_CLAUDE the
+# claude executable. Without a choice, the first available provider is used.
+#
+# Nothing the assistant proposes is written here: the editor shows each
+# proposal and applies it, as an ordinary edit, only when the author accepts.
+
+record Request do
+  system : String
+  prompt : String
+  # The quick, cheaper model (autocomplete, continuing) rather than the best one.
+  fast : Bool = false
+end
+
+record Provider do
+  id : String
+  name : String
+  # "claude" or "command": how `run` talks to it.
+  kind : String
+  command : String
+  args : [String] = []
+  models : {String: String} = {}
+end
+
+# What the editor needs to know: which providers exist, which can answer,
+# and which one answers now ("" when none can).
+foul describe -> {String: Any} do
+  let settings = config
+  let all = providers(settings)
+  let chosen = selected(settings, all)
+  return { "provider": chosen.map { |provider| provider.id }.or(""),
+    "providers": all.map { |provider| { "id": provider.id, "name": provider.name, "available": available?(provider) } } }
+end
+
+# One task from the editor, answered: `markdown` and the `html` the editor
+# inserts, or for "chat" an `answer` and the `edits` it suggests, or for
+# "complete" the `text` to type next.
+foul ask(root: String, blocks: [Any], data: {String: Any}) -> {String: Any} or! String do
+  let settings = config
+  let provider = match selected(settings, providers(settings)) do
+    Just(found) => found
+    None => return Error("no AI provider is available: install the claude CLI, or configure one in ~/.config/marqraft/assistant.json")
+  end
+  let task = Marqraft.Data.text(data, "task", "")
+  let request = Marqraft.Assistant.request(task, data).try
+  return Ok({ "text": clean(complete(provider, request).try) }) if task == "complete"
+  return chat(root, blocks, provider, request, Marqraft.Data.integer(data, "blocks", 0)) if task == "chat"
+  let markdown = clean(unfence(complete(provider, request).try))
+  return Error("the assistant gave an empty answer") if markdown == ""
+  return Ok({ "markdown": markdown, "html": Marqraft.Content.render(markdown, true, root, blocks) })
+end
+
+foul chat(root: String, blocks: [Any], provider: Provider, request: Request, count: Integer) -> {String: Any} or! String do
+  let first = complete(provider, request).try
+  let reply = match suggestion(first, count) do
+    Ok(parsed) => parsed
+    # Asked once more, with what was wrong, before giving up.
+    Error(problem) => suggestion(complete(provider, Request { ...request, prompt: request.prompt + "\n\nYour previous reply was not usable (${problem}). Reply again with only the JSON object." }).try, count).try
+  end
+  let edits = Marqraft.Data.list(reply.get("edits").or([])).or([]).map do |edit|
+    let markdown = Marqraft.Data.text(edit, "markdown", "")
+    Marqraft.Data.object(edit).or({}).put("html", markdown == "" then "" else Marqraft.Content.render(markdown, true, root, blocks))
+  end
+  return Ok({ "answer": Marqraft.Data.text(reply, "answer", ""), "edits": edits })
+end
+
+# The chat reply, parsed and checked: an answer, and edits that each name a
+# block the page has (numbered from 1, as the page was sent).
+let suggestion(text: String, count: Integer) -> {String: Any} or! String do
+  let reply = Marqraft.Data.object(Marqraft.Data.parse(jsonObject(text)).try).try
+  return Error("\"answer\" must be a string") if Type.of(reply.get("answer").or(0)).name != "String"
+  let edits = Marqraft.Data.list(reply.get("edits").or([])).try
+  let problems = edits.map { |edit| editProblem(edit, count) }.filter { |problem| problem != "" }
+  return Error(problems.first.or("")) if !problems.empty?
+  return Ok(reply)
+end
+
+let editProblem(edit: Any, count: Integer) -> String do
+  let op = Marqraft.Data.text(edit, "op", "")
+  let block = Marqraft.Data.integer(edit, "block", 0)
+  return "unknown edit op \"${op}\"" if !["replace", "insert_after", "delete"].contains?(op)
+  return "edit block ${block} is not between 1 and ${count}" if block < 1 || block > count
+  return "a ${op} edit needs markdown" if op != "delete" && Marqraft.Data.text(edit, "markdown", "").trim == ""
+  return ""
+end
+
+# The outermost {...} in a reply, whatever the model wrapped around it.
+let jsonObject(text: String) -> String do
+  let start = text.indexOf('{').or(-1)
+  let close = text.count - 1 - text.reverse.indexOf('}').or(text.count)
+  return text if start < 0 || close < start
+  return text.drop(start).take(close - start + 1)
+end
+
+# A Markdown answer wrapped whole in a ```markdown fence, as models like to.
+let unfence(text: String) -> String do
+  let trimmed = text.trim
+  return trimmed if !trimmed.startsWith?("```") || !trimmed.endsWith?("```")
+  let lines = trimmed.lines
+  return lines.drop(1).take(lines.count - 2).join("\n")
+end
+
+let clean(text: String) -> String = text.trim
+
+let markdownRules -> String = "Write CommonMark Markdown using only: paragraphs, # headings, **bold**, *italic*, `code`, [links](url), - bullet lists, 1. numbered lists, > quotes, fenced code blocks, pipe tables and ---. Never use HTML."
+
+let pageLine(data: {String: Any}) -> String do
+  let title = Marqraft.Data.text(data, "title", "")
+  return title == "" then "" else "The page is titled \"${title}\".\n\n"
+end
+
+# The prompt for each task. Page text is quoted as material to work on, never
+# as instructions.
+request : String -> {String: Any} -> Result<Request, String>
+
+foul request("rewrite", data) do
+  let instruction = Marqraft.Data.text(data, "instruction", "")
+  let markdown = Marqraft.Data.text(data, "markdown", "")
+  return Error("nothing to rewrite") if markdown.trim == ""
+  return Ok(Request {
+    system: "You edit one block of a web page. Apply the author's instruction to the block and reply with only the rewritten block, with no preamble or commentary. Keep its meaning, language and Markdown structure unless the instruction changes them. ${markdownRules}",
+    prompt: "${pageLine(data)}Instruction: ${instruction}\n\nThe block:\n<block>\n${markdown}\n</block>" })
+end
+
+foul request("generate", data) do
+  let instruction = Marqraft.Data.text(data, "instruction", "")
+  return Error("say what to write") if instruction.trim == ""
+  return Ok(Request {
+    system: "You draft content for a web page. Write what the author asks for, to fit where it goes in the page, and reply with only that content, with no preamble or commentary. ${markdownRules}",
+    prompt: "${pageLine(data)}The page so far, for context:\n<page>\n${Marqraft.Data.text(data, "context", "")}\n</page>\n\nWrite: ${instruction}" })
+end
+
+foul request("continue", data) do
+  return Ok(Request {
+    system: "You continue a web page where it stops. Write the next one to three paragraphs, or the rest of the list or section that is in progress, in the same voice. Reply with only the new content, never repeating the existing text. ${markdownRules}",
+    prompt: "${pageLine(data)}<page>\n${Marqraft.Data.text(data, "before", "")}\n</page>",
+    fast: true })
+end
+
+foul request("complete", data) do
+  return Ok(Request {
+    system: "You are an autocomplete for prose. Reply with only the words that most likely come next at <cursor/>: at most one sentence, as plain text without Markdown, starting with a space if one is needed. Reply with nothing if nothing fits.",
+    prompt: "${pageLine(data)}${Marqraft.Data.text(data, "before", "")}<cursor/>${Marqraft.Data.text(data, "after", "")}",
+    fast: true })
+end
+
+foul request("chat", data) do
+  let messages = Marqraft.Data.list(data.get("messages").or([])).or([])
+  return Error("ask something") if messages.empty?
+  let history = messages.map { |message| "${Marqraft.Data.text(message, "role", "user") == "assistant" then "Assistant" else "Author"}: ${Marqraft.Data.text(message, "content", "")}" }.join("\n\n")
+  return Ok(Request {
+    system: "You help an author with the web page they are editing. The page is given as numbered blocks. Answer their latest message, and when they ask for changes, propose them as edits to blocks by number. Edits are only proposals the author reviews, so describe them as suggestions, never as done. Reply with only a JSON object, with no code fence: {\"answer\": \"your reply, in plain text\", \"edits\": [{\"op\": \"replace\" | \"insert_after\" | \"delete\", \"block\": <number>, \"markdown\": \"the new block(s); omitted for delete\"}]}. Use an empty edits list when no change is asked for. In edits, ${markdownRules}",
+    prompt: "${pageLine(data)}<page>\n${Marqraft.Data.text(data, "outline", "")}\n</page>\n\n${history}" })
+end
+
+foul request(task, data) do
+  return Error("unknown assistant task: ${task}")
+end
+
+# Sends the request to the provider and answers the text of its reply.
+foul complete(provider: Provider, request: Request) -> String or! String do
+  return run(provider.kind, provider, request, model(provider, request))
+end
+
+let model(provider: Provider, request: Request) -> String = provider.models.get(request.fast then "fast" else "smart").or("")
+
+run : String -> Provider -> Request -> String -> Result<String, String>
+
+# Claude Code in print mode, as the author is logged in. No tools, MCP
+# servers, CLAUDE.md, plugins or hooks: page text cannot make it do anything
+# but answer.
+foul run("claude", provider, request, model) do
+  let chosen = model == "" then [] else ["--model", model]
+  let arguments = ["-p", request.prompt, "--output-format", "json", "--system-prompt", request.system,
+    "--tools", "", "--strict-mcp-config", "--safe-mode", "--no-session-persistence"] + chosen
+  let result = Process.run(provider.command, arguments).try
+  let envelope = match Marqraft.Data.decode(result.stdout) do
+    Ok(value) => Marqraft.Data.object(value).or({})
+    Error(_) => {}
+  end
+  return Error("claude failed: ${firstLine(result.stderr + result.stdout)}") if envelope.empty?
+  return Error("claude: ${Marqraft.Data.text(envelope, "result", "failed")}") if Marqraft.Data.flag(envelope, "is_error", false) || result.exitCode != 0
+  return Ok(Marqraft.Data.text(envelope, "result", ""))
+end
+
+# Any other command: its arguments with the request filled in, its reply on
+# standard output.
+foul run("command", provider, request, model) do
+  let arguments = provider.args.map { |argument| argument.replace("{model}", model).replace("{system}", request.system).replace("{prompt}", request.prompt) }
+  let result = Process.run(provider.command, arguments).try
+  return Error("${provider.name} failed: ${firstLine(result.stderr + result.stdout)}") if result.exitCode != 0
+  return Ok(result.stdout)
+end
+
+foul run(kind, provider, request, model) do
+  return Error("unknown provider kind: ${kind}")
+end
+
+let firstLine(text: String) -> String = text.trim.lines.first.or("no output")
+
+# The settings from the machine's config file, or none.
+foul config -> {String: Any} do
+  let path = ENV.get("MARQ_ASSISTANT_CONFIG").or("${ENV.get("HOME").or("")}/.config/marqraft/assistant.json")
+  return {} if !FS.File.file?(path)
+  return Marqraft.Data.object(Marqraft.Data.read(path).or({})).or({})
+end
+
+# Claude first, then the configured commands in the order they are written.
+foul providers(settings: {String: Any}) -> [Provider] do
+  let models = Marqraft.Data.object(settings.get("models").or({})).or({})
+  let claude = Provider { id: "claude", name: "Claude", kind: "claude", command: ENV.get("MARQ_CLAUDE").or("claude"),
+    models: { "fast": Marqraft.Data.text(models, "fast", "haiku"), "smart": Marqraft.Data.text(models, "smart", "sonnet") } }
+  let configured = Marqraft.Data.object(settings.get("providers").or({})).or({}).entries.map do |entry|
+    let (id, value) = entry
+    Provider { id, name: Marqraft.Data.text(value, "name", id), kind: "command",
+      command: Marqraft.Data.text(value, "command", id),
+      args: Marqraft.Data.list(Marqraft.Data.object(value).or({}).get("args").or(["{prompt}"])).or([]).map { |argument| "${argument}" },
+      models: { "fast": Marqraft.Data.text(models, "fast", ""), "smart": Marqraft.Data.text(models, "smart", "") } }
+  end
+  return [claude] + configured.filter { |provider| provider.id != "claude" }
+end
+
+foul selected(settings: {String: Any}, all: [Provider]) -> Provider? do
+  let wanted = ENV.get("MARQ_ASSISTANT_PROVIDER").or(Marqraft.Data.text(settings, "provider", ""))
+  return all.find { |provider| provider.id == wanted } if wanted != ""
+  return all.find { |provider| available?(provider) }
+end
+
+# Whether the provider's command can be run: remembered per command, since
+# asking takes a moment and the answer changes only when software is installed.
+foul available?(provider: Provider) -> Bool do
+  let key = ("marqraft_assistant", provider.command)
+  let known = BEAM.persistent_term.get(key, :unknown)
+  return known == :yes if known != :unknown
+  let found = Process.run(provider.command, ["--version"]).ok?
+  BEAM.persistent_term.put(key, found then :yes else :no)
+  return found
+end

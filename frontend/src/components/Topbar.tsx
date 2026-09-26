@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, Check, Eye, FileText, Loader2, Palette, PenLine, RotateCw, Settings2 } from 'lucide-react';
+import { AlertTriangle, Check, Eye, FileText, Loader2, Palette, PenLine, RotateCw, Settings2, Sparkles } from 'lucide-react';
 import marqraftIcon from '../assets/marqraft-icon.png';
 import type { SaveState } from '../save';
 import type { Doc, Project } from '../types';
@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 type Props = {
   project: Project; doc: Doc; state: SaveState; mode: 'edit' | 'preview';
   setMode: (mode: 'edit' | 'preview') => void; retry: () => void; openTheme: () => void;
+  /** Opens the AI chat; absent when no AI provider can answer. */
+  openAssistant?: () => void;
   applyMetadata: (field: 'title' | 'description' | 'path' | 'template' | 'draft' | 'version', value: string | boolean) => void;
 };
 
@@ -33,7 +35,7 @@ function Status({ state, retry }: { state: SaveState; retry: () => void }) {
   </span>;
 }
 
-export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, applyMetadata }: Props) {
+export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, openAssistant, applyMetadata }: Props) {
   const [path, setPath] = useState(doc.path);
   useEffect(() => setPath(doc.path), [doc.path]);
   const pathTaken = project.pages.some(page => page.id !== doc.id && page.path.toLowerCase() === path.toLowerCase());
@@ -79,6 +81,7 @@ export function Topbar({ project, doc, state, mode, setMode, retry, openTheme, a
             </div>
           </PopoverContent>
         </Popover>
+        {openAssistant && mode === 'edit' && <Button variant="ghost" size="sm" onClick={openAssistant}><Sparkles />Ask AI</Button>}
         <Button variant="ghost" size="sm" onClick={openTheme}><Palette />Theme</Button>
         <Separator orientation="vertical" />
         {mode === 'edit'

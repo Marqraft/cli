@@ -2,7 +2,7 @@ import type { Editor } from '@tiptap/core';
 import type { Command, ThemeBlock } from './types';
 import { defaults } from './registry';
 
-export type SlashItem = { id: string; label: string; description: string; aliases: string[]; icon: string; group: 'Text' | 'Insert' | 'Theme'; run: (editor: Editor) => void };
+export type SlashItem = { id: string; label: string; description: string; aliases: string[]; icon: string; group: 'AI' | 'Text' | 'Insert' | 'Theme'; run: (editor: Editor) => void };
 
 const newArea = (label: string) => ({ type: 'marqArea', attrs: { settings: { id: crypto.randomUUID(), label } }, content: [{ type: 'paragraph' }] });
 
@@ -41,8 +41,8 @@ export function blockContent(block: ThemeBlock) {
  * replace a built-in only when it declares `override`; the backend rejects
  * implicit collisions, and duplicates here keep the built-in.
  */
-export function slashCommands(commands: Command[], blocks: ThemeBlock[], pickImage: () => void): SlashItem[] {
-  const items = builtInCommands(pickImage);
+export function slashCommands(commands: Command[], blocks: ThemeBlock[], pickImage: () => void, extra: SlashItem[] = []): SlashItem[] {
+  const items = [...builtInCommands(pickImage), ...extra];
   for (const command of commands) {
     const block = blocks.find(item => item.id === command.block);
     if (command.kind !== 'insert' || !block) continue;

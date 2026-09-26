@@ -10,6 +10,7 @@ import { Placeholder } from '@tiptap/extensions';
 import { X } from 'lucide-react';
 import { MarqFence, MarqAlert, MarqCode, MarqTable, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
 import { CodeHighlight } from './highlight';
+import { Autocomplete } from './autocomplete';
 import { themeNodes } from './theme-nodes';
 import { api, pageID, upload } from './api';
 import { registry } from './registry';
@@ -24,6 +25,9 @@ import type { Doc, Project } from './types';
 import { EditorToolbar } from './components/EditorToolbar';
 import { SlashMenu } from './components/SlashMenu';
 import { BlockHandle } from './components/BlockHandle';
+import { ProposalLayer } from './components/Proposal';
+import { AssistantPanel } from './components/AssistantPanel';
+import { assistantCommands } from './assist';
 import { NavigationTree } from './components/NavigationTree';
 import { MenuEditor } from './components/MenuEditor';
 import { CollectionNav } from './components/CollectionNav';
@@ -39,13 +43,16 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   const [message, setMessage] = useState('');
   const [mode, setMode] = useState<Mode>(() => storedMode(initialProject.project));
   const [themeOpen, setThemeOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const site = useProject(initialProject, setMessage);
   const { project } = site;
   registry.blocks = project.theme.blocks; registry.project = project;
 
   const imageInput = useRef<HTMLInputElement>(null);
   const pickImage = () => imageInput.current?.click();
-  const commands = useMemo(() => slashCommands(project.theme.commands, project.theme.blocks, pickImage), [project.theme]);
+  // The assistant's features show only when some AI provider can answer.
+  const assistant = Boolean(project.assistant?.provider);
+  const commands = useMemo(() => slashCommands(project.theme.commands, project.theme.blocks, pickImage, assistant ? assistantCommands : []), [project.theme, assistant]);
   const editorRef = useRef<Editor | null>(null);
   const slashMenu = useSlashMenu(commands, editorRef);
   // The page as everyone who has it open edits it.
@@ -60,6 +67,7 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
     // out on parse, leaving an empty paragraph that still saved the image's source.
     TableKit.configure({ table: false }), MarqTable, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, CodeHighlight,
     Placeholder.configure({ placeholder: 'Write something, or type / for blocks' }),
+    Autocomplete,
     ...themeNodes(initialProject.theme.blocks),
   ], []);
 
@@ -105,16 +113,18 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   const navigation = { project: liveProject, currentId: initial.id, saveNavigation: site.saveNavigation, createPage, navigate, setDraft };
 
   return <TooltipProvider delayDuration={400}>
-    <Topbar project={project} doc={doc} state={page.saveState} mode={mode} setMode={setMode} retry={page.retry} openTheme={() => setThemeOpen(true)} applyMetadata={page.applyMetadata} />
+    <Topbar project={project} doc={doc} state={page.saveState} mode={mode} setMode={setMode} retry={page.retry} openTheme={() => setThemeOpen(true)} openAssistant={assistant ? () => setAssistantOpen(true) : undefined} applyMetadata={page.applyMetadata} />
     {editor && toolbarElement && createPortal(<EditorToolbar editor={editor} commands={commands} pickImage={pickImage} />, toolbarElement)}
     {editor && bodyHost && createPortal(<EditorContent editor={editor} />, bodyHost)}
-    {editor && mode === 'edit' && createPortal(<BlockHandle editor={editor} />, document.body)}
+    {editor && mode === 'edit' && createPortal(<BlockHandle editor={editor} assistant={assistant} />, document.body)}
+    {editor && mode === 'edit' && assistant && createPortal(<ProposalLayer editor={editor} />, document.body)}
     {navigationHosts.map(host => createPortal(host.dataset.marqScope === 'collections'
       ? <CollectionNav {...navigation} />
       : <NavigationTree {...navigation} root={host.dataset.marqScope === 'collection' ? host.dataset.marqCollection || undefined : undefined} />,
       host, `navigation-${host.dataset.marqScope ?? 'all'}`))}
     {menuHosts.map(host => createPortal(<MenuEditor project={liveProject} menuId={host.dataset.marqMenu ?? ''} currentId={initial.id} save={site.saveMenus} navigate={navigate} />, host, host.dataset.marqMenu))}
     {slashMenu.slash && mode === 'edit' && <SlashMenu state={slashMenu.slash} items={slashMenu.matches} choose={slashMenu.choose} hover={slashMenu.hover} />}
+    {editor && assistant && <AssistantPanel editor={editor} open={assistantOpen && mode === 'edit'} setOpen={setAssistantOpen} />}
     <ThemeSettingsModal project={project} open={themeOpen} setOpen={setThemeOpen} save={site.saveTheme} onError={setMessage} />
     <ConflictDialog {...page.conflict} />
     <input ref={imageInput} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {

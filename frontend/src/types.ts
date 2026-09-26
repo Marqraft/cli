@@ -8,6 +8,7 @@ export type Doc = Page & { source: string; html: string; body: string };
 export type Nav = { id: string; children: Nav[] };
 export type MenuItem = { label: string; page?: string; url?: string };
 export type Theme = { name: string; settings: Field[]; settingsPages?: SettingsPageDef[]; blocks: ThemeBlock[]; commands: Command[]; pageTemplates: { id: string; label: string }[]; menus?: { id: string; label: string }[] };
+export type Assistant = { provider: string; providers: { id: string; name: string; available: boolean }[] };
 export type Project = {
   project: string; pages: Page[]; navigation: Nav[];
   /** Collections a mount generates: shown in the header, never edited or saved. */
@@ -16,5 +17,7 @@ export type Project = {
   menus: Record<string, MenuItem[]>; menusRevision: string;
   config: { title: string; theme?: string; favicon?: string; settings: Record<string, string> };
   uploads?: string;
+  /** The writing assistant: `provider` is the one that answers, "" when none can. */
+  assistant?: Assistant;
   theme: Theme;
 };

@@ -57,6 +57,9 @@ foul start(directory: String, port: Integer) -> Void or! String do
         let body = env.request.body.to(String).try
         if body.count > 12000000
           textReply(413, "request too large")
+        elif env.param("action").or("") == "assist"
+          let answer = Marqraft.API.assist(root, body)
+          jsonReply(answer.status, answer.body)
         else
           let result = workspace.invoke(env.param("action").or(""), body).try
           # A successful action changed files: the next request, and every

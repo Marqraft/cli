@@ -125,6 +125,15 @@ body.marq-previewing select.marq-code-language { pointer-events: none; appearanc
 .marq-code-caption[data-empty="true"] { position: absolute; left: 0; right: 0; top: 100%; margin: 0.3rem 0 0; }
 .marq-code:not(:hover):not(:focus-within) .marq-code-caption[data-empty="true"] { visibility: hidden; }
 .marq-document .ProseMirror-gapcursor::after { border-top-color: currentColor; }
+/* The block an AI proposal or request is about, and the proposal itself. */
+.marq-ai-target { outline: 2px dashed #a78bfa; outline-offset: 4px; border-radius: 4px; }
+.marq-ai-preview { min-height: 0; }
+/* The theme's body container, reused for a preview: its content styles, none of its layout. */
+.marq-ai-preview > .marq-ai-frame { display: block; position: static; margin: 0; padding: 0; width: auto; max-width: none; min-height: 0; border: 0; box-shadow: none; background: transparent; }
+/* An autocomplete suggestion, after the caret. */
+.marq-ghost { color: #a1a1aa; pointer-events: none; }
+.marq-ai-frame > :first-child { margin-top: .5rem; }
+.marq-ai-frame > :last-child { margin-bottom: .5rem; }
 [data-marq-title][contenteditable="true"] { outline: none; }
 [data-marq-title][contenteditable="true"]:empty::before { content: "Untitled"; color: #a1a1aa; }
 [data-marq-description][contenteditable="true"] { outline: none; }

@@ -115,6 +115,7 @@ with status 400 or 409.
 | POST   | `upload`              | `name`, `base64`                                | `url` |
 | POST   | `block`               | `id`, `settings`                                | `html` rendered with an empty body |
 | POST   | `operation`           | `id`, `input`                                   | the result of the mapped action |
+| POST   | `assist`              | `task` and its fields (see below)               | `markdown` + `html`, `text`, or `answer` + `edits` |
 
 Revisions are SHA-256 digests of the file contents last read.
 
@@ -125,3 +126,40 @@ third second. Each reload is announced as `{"type": "changed"}` over the
 WebSocket at `/__marqraft/live` to every open editor, which then checks its
 page and project as it used to every two seconds; while the socket is down,
 editors fall back to that polling.
+
+## Writing assistant
+
+The editor's AI features (a block's "Ask AI" menu, `/ai` and `/continue`,
+the "Ask AI" chat, and autocomplete) all call `POST assist`. That request
+runs in its own request process, not through the `Workspace` actor: a model
+takes seconds to answer, and saves must not queue behind it. It changes no
+files.
+
+Prompts, answer checking and Markdown rendering live in `Marqraft.Assistant`
+and are the same for every provider. A provider only turns a prompt into
+text:
+
+- `claude`: the local Claude Code CLI in print mode, logged in as the
+  author, so no API key is involved. It runs with `--tools ""`,
+  `--strict-mcp-config` and `--safe-mode`, so no tools, MCP servers,
+  CLAUDE.md, plugins or hooks. Page text is untrusted input, and with these
+  flags it can only produce an answer.
+- `command`: any CLI configured in `~/.config/marqraft/assistant.json`,
+  with `{prompt}`, `{system}` and `{model}` placeholders in its args (Codex,
+  OpenCode, `llm`, local runners). Structured output (chat edits) comes from
+  prompt instructions plus validation and one retry, not from a
+  provider-specific schema flag.
+
+Provider choice is per machine (which tools are installed), not per site:
+the config file is under the user's home, `MARQ_ASSISTANT_PROVIDER` /
+`MARQ_ASSISTANT_CONFIG` / `MARQ_CLAUDE` override it, and without a choice the
+first available provider answers. `project` reports `assistant.provider`,
+which is "" when none can answer. The editor then hides every AI feature.
+
+Nothing the assistant writes enters the document on its own. Each answer is
+a proposal, shown beside its block or in the chat, rendered through the
+editor's schema. Accepting applies it as one ordinary transaction, so Yjs
+sends it to co-editors and the saver saves it. A proposal remembers its
+block's node: edits elsewhere keep that node, while an edit to the block
+itself replaces it, which marks the proposal stale instead of overwriting
+the change.

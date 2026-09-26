@@ -1,9 +1,6 @@
 using OptionParser
 
-main(rawArgs) do
-  # OTP escripts pass charlists; Kex's runner passes binaries. OTP's public
-  # Unicode conversion accepts both at this executable boundary.
-  let args = rawArgs.map { |argument| BEAM.unicode.characters_to_binary(argument) }
+main(args) do
   let cli = OptionParser.define("marq", "Marqraft CLI | Local CMS and static site generator")
     .flag("help", Just('h'), "Show help")
     .flag("version", Just('v'), "Show version")

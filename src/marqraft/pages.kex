@@ -4,7 +4,7 @@ module Marqraft.Pages
 # collection into its next edition.
 
 using Marqraft.Document, only: [Page]
-using Marqraft.Project, only: [Site, load, page, pageGenerated?, pageId, pagePath, pageTitle]
+using Marqraft.Project, only: [Site, page, pageGenerated?, pageId, pagePath, pageTitle]
 using Marqraft.Navigation, only: [NavNode, findNode, generatedIds, home?, homeId, insertChild, renameNode, renamedId, stripGenerated, subtreeIds, saveTree]
 
 foul pageTemplate?(site: Site, template: String) -> Bool do
@@ -12,7 +12,7 @@ foul pageTemplate?(site: Site, template: String) -> Bool do
 end
 
 foul save(root: String, id: String, revision: String, source: String) -> Page or! String do
-  let site = load(root).try
+  let site = Marqraft.Project.load(root).try
   let old = page(site, id).try
   return Error("generated page ${pageTitle(old)} is read-only") if pageGenerated?(old)
   return Error("conflict: document changed on disk") if old.revision != revision
@@ -27,7 +27,7 @@ foul save(root: String, id: String, revision: String, source: String) -> Page or
 end
 
 foul createPage(root: String, title: String, path: String, template: String, parent: String) -> Page or! String do
-  let site = load(root).try
+  let site = Marqraft.Project.load(root).try
   return Error("title is required") if title.trim.empty?
   return Error("invalid URL path: use lowercase segments like /guide/intro/") if !Marqraft.Document.urlPath?(path)
   return Error("URL collision: ${path} is already used") if site.pages.any? { |item| pagePath(item).lowerCase == path.lowerCase }
@@ -70,7 +70,7 @@ end
 # into `to`. `unlist` hides the original from the collections menu (it is
 # still built and linkable).
 foul copyCollection(root: String, from: String, to: String, title: String, unlist: Bool) -> Page or! String do
-  let site = load(root).try
+  let site = Marqraft.Project.load(root).try
   return Error("invalid URL path: ${to}") if !Marqraft.Document.urlPath?(to)
   return Error("the home page is not a collection") if from == "/" || to == "/"
   return Error("${to} is inside ${from}") if to.startsWith?(from)
@@ -100,7 +100,7 @@ foul copyCollection(root: String, from: String, to: String, title: String, unlis
   let copiedNode = renameNode(node.try, renamed)
   let authoredTree = stripGenerated(site.navigation, generatedIds(site))
   saveTree(root, withCopy(authoredTree, sourceId, copiedNode, unlist), homeId(site.pages)).try
-  let copied = load(root).try
+  let copied = Marqraft.Project.load(root).try
   return page(copied, renamedId(renamed, sourceId))
 end
 
@@ -137,7 +137,7 @@ end
 # listed. Only the draft line changes, so an editor open on that page sees an
 # ordinary external change.
 foul setDraft(root: String, id: String, draft?: Bool) -> Page or! String do
-  let site = load(root).try
+  let site = Marqraft.Project.load(root).try
   let old = page(site, id).try
   return Error("generated page ${pageTitle(old)} is read-only") if pageGenerated?(old)
   let source = Marqraft.Document.withDraft(old.source, draft?)

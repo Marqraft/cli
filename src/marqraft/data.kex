@@ -46,23 +46,13 @@ foul read(path: String) -> Any or! String do
   return Marqraft.Data.decode(source)
 end
 
-# OTP's JSON decoder is far faster than the Kex parser on theme manifests,
-# frontmatter and save payloads. It raises on input it rejects, which Kex
-# cannot rescue, so it runs through rpc:call and a {badrpc, _} tuple (never a
-# decoded JSON value) sends the text to JSON.parse, which also accepts JSONC
-# comments and reports errors.
-foul decode(text: String) -> Any or! String do
-  let decoded = BEAM.rpc.call(BEAM.erlang.node(), :json, :decode, [text])
-  return Marqraft.Data.parse(text) if Type.of(decoded).name == "Tuple"
-  return Ok(decoded)
-end
+# JSON.parse decodes through OTP's decoder, JSONC comments included
+# (kexhq/kex#405), and falls back to the Kex parser only to report an error.
+foul decode(text: String) -> Any or! String = Marqraft.Data.parse(text)
 
-# JSON for API replies through OTP's encoder: Kex's JSON.stringify slows down
-# sharply on long strings (a 59 KB page body took over a minute). Replies hold
-# only maps, lists, strings, integers and booleans.
-foul encode(value: Any) -> String do
-  return "${BEAM.erlang.iolist_to_binary(BEAM.json.encode(value))}"
-end
+# JSON.stringify encodes through OTP's encoder (kexhq/kex#333), so a long
+# page body in a reply costs no more than a short one.
+let encode(value: Any) -> String = JSON.stringify(value)
 
 # Indented JSON for versioned project files, so Git diffs stay line-sized.
 let pretty(value: Any) -> String do

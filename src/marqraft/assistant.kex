@@ -251,10 +251,10 @@ end
 # Whether the provider's command can be run: remembered per command, since
 # asking takes a moment and the answer changes only when software is installed.
 foul available?(provider: Provider) -> Bool do
-  let key = ("marqraft_assistant", provider.command)
-  let known = BEAM.persistent_term.get(key, :unknown)
-  return known == :yes if known != :unknown
+  let known: Process.Shared<Bool> = Process.Shared.named("marqraft_assistant:${provider.command}")
+  let answer: Bool? = known.get
+  return answer.try if answer.set?
   let found = Process.run(provider.command, ["--version"]).ok?
-  BEAM.persistent_term.put(key, found then :yes else :no)
+  known.put(found)
   return found
 end

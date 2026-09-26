@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { tokens } from './highlight';
 
-describe('Kex highlight tokens', () => {
+describe('highlight tokens', () => {
   it('maps classed spans to offsets in the code, entities decoded', () => {
     const code = 'let s = "a<b"';
     const html = '<span class="tok-keyword">let</span> s <span class="tok-op">=</span> <span class="tok-string">&quot;a&lt;b&quot;</span>';

@@ -8,8 +8,8 @@ import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extensions';
 import { X } from 'lucide-react';
-import { MarqAlert, MarqCode, MarqTable, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
-import { KexHighlight } from './highlight';
+import { MarqFence, MarqAlert, MarqCode, MarqTable, MarqTabs, MarqArea, SourceBlock, SourceSlices } from './nodes';
+import { CodeHighlight } from './highlight';
 import { themeNodes } from './theme-nodes';
 import { api, pageID, upload } from './api';
 import { registry } from './registry';
@@ -54,11 +54,11 @@ function Author({ initial, initialProject, toolbarElement }: { initial: Doc; ini
   // The schema is fixed for the life of the page; theme block changes reload it.
   const extensions = useMemo(() => [
     // Undo comes with collaboration: each editor undoes only its own changes.
-    StarterKit.configure({ link: { openOnClick: false }, trailingNode: false, undoRedo: false }),
+    StarterKit.configure({ link: { openOnClick: false }, trailingNode: false, undoRedo: false, codeBlock: false }), MarqFence,
     CoEditing.configure({ session }),
     // Markdown images are inline: as a block node, an image inside a rendered <p> was split
     // out on parse, leaving an empty paragraph that still saved the image's source.
-    TableKit.configure({ table: false }), MarqTable, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, KexHighlight,
+    TableKit.configure({ table: false }), MarqTable, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices, CodeHighlight,
     Placeholder.configure({ placeholder: 'Write something, or type / for blocks' }),
     ...themeNodes(initialProject.theme.blocks),
   ], []);

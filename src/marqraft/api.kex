@@ -38,12 +38,12 @@ foul perform(root, "block", data) do
   return blockPreview(root, data)
 end
 
-# Kex code highlighted exactly as a published page renders it, for the
-# editor to show as decorations over the plain text it edits.
+# Code highlighted exactly as a published page renders it, for the editor to
+# show as decorations over the plain text it edits.
 foul perform(root, "highlight", data) do
   let code = Marqraft.Data.text(data, "code", "")
   return Error("code is too long to highlight") if code.count > 200000
-  return Ok({ "html": Markdown.Highlight.highlight(code) })
+  return Ok({ "html": Marqraft.Syntax.highlightSource(code, Marqraft.Data.text(data, "language", "kex")) })
 end
 
 foul perform(root, "save", data) do

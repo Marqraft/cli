@@ -1,0 +1,44 @@
+describe "code highlighting" do
+  it "highlights keywords, types, strings, numbers and comments in Rust" do
+    let html = Marqraft.Syntax.highlightSource("// entry\nfn main() {\n    let answer: Option<u32> = Some(42);\n    println!(\"{}\", \"a < b\");\n}", "rust")
+    assert(html.contains?("<span class=\"tok-comment\">// entry</span>"))
+    assert(html.contains?("<span class=\"tok-keyword\">fn</span> <span class=\"tok-fn\">main</span>"))
+    assert(html.contains?("<span class=\"tok-type\">Option</span>"))
+    assert(html.contains?("<span class=\"tok-bool\">Some</span>"))
+    assert(html.contains?("<span class=\"tok-number\">42</span>"))
+    assert(html.contains?("<span class=\"tok-fn\">println!</span>"))
+    assert(html.contains?("<span class=\"tok-string\">&quot;a &lt; b&quot;</span>"))
+  end
+  it "knows each language's comments and quirks" do
+    assert(Marqraft.Syntax.highlightSource("% note\nX = foo:bar(?MODULE).", "erlang").contains?("<span class=\"tok-comment\">% note</span>"))
+    assert(Marqraft.Syntax.highlightSource("X = foo:bar(?MODULE).", "erl").contains?("<span class=\"tok-field\">?MODULE</span>"))
+    assert(Marqraft.Syntax.highlightSource("def empty?\n  @items.none? # none\nend", "ruby").contains?("<span class=\"tok-keyword\">def</span> empty?"))
+    assert(Marqraft.Syntax.highlightSource("def empty?\n  @items.none? # none\nend", "rb").contains?("<span class=\"tok-field\">@items</span>"))
+    assert(Marqraft.Syntax.highlightSource("{- block -}\nmain :: IO ()\nmain = print x' -- done", "haskell").contains?("<span class=\"tok-comment\">{- block -}</span>"))
+    assert(Marqraft.Syntax.highlightSource("main = print x' -- done", "hs").contains?("x' <span class=\"tok-comment\">-- done</span>"))
+    let shell = Marqraft.Syntax.highlightSource("curl https://kex.run/#install # fetch\necho \"$HOME\"", "bash")
+    assert(shell.contains?("<span class=\"tok-comment\"># fetch</span>"))
+    assert(!shell.contains?("<span class=\"tok-comment\">#install"))
+    assert(Marqraft.Syntax.highlightSource("{\"name\": \"kex\", \"stable\": false}", "json").contains?("<span class=\"tok-field\">&quot;name&quot;</span><span class=\"tok-op\">:</span> <span class=\"tok-string\">&quot;kex&quot;</span>"))
+    assert(Marqraft.Syntax.highlightSource("<a href=\"/\">Home</a> <!-- nav -->", "html").contains?("<span class=\"tok-keyword\">a</span> <span class=\"tok-type\">href</span>"))
+  end
+  it "leaves Kex to the markdown package and escapes languages it does not know" do
+    assert(Marqraft.Syntax.highlightSource("let x = 1", "kex") == Markdown.Highlight.highlight("let x = 1"))
+    assert(Marqraft.Syntax.highlightSource("a < b & c", "text") == "a &lt; b &amp; c")
+    assert(Marqraft.Syntax.highlightSource("a < b", "cobol") == "a &lt; b")
+  end
+  it "renders fences as windows, with filename and caption from the info string" do
+    let html = Marqraft.Content.render("```rust filename=\"src/main.rs\" caption=\"The entry point.\"\nfn main() {}\n```\n", false, "", [])
+    assert(html.contains?("<figure class=\"marq-code\" data-language=\"rust\"><div class=\"marq-code-bar\">"))
+    assert(html.contains?("<span class=\"marq-code-file\">src/main.rs</span>"))
+    assert(html.contains?("<span class=\"tok-keyword\">fn</span>"))
+    assert(html.contains?("<figcaption>The entry point.</figcaption>"))
+    let plain = Marqraft.Content.render("```\nno language\n```\n", false, "", [])
+    assert(!plain.contains?("marq-code-language") && !plain.contains?("<figcaption>"))
+    let nested = Marqraft.Content.render("````markdown\n```kex\nlet x = 1\n```\n````\n\nAfter.\n", false, "", [])
+    assert(nested.contains?("```kex\nlet x = 1\n```</code></pre>"))
+    assert(nested.contains?("<p>After.</p>"))
+    let authoring = Marqraft.Content.render("```ruby caption=\"Hi\"\nputs 1\n```\n", true, "", [])
+    assert(authoring.contains?("data-marq-fence=\"{&quot;caption&quot;:&quot;Hi&quot;,&quot;language&quot;:&quot;ruby&quot;}\"") || authoring.contains?("data-marq-fence=\"{&quot;language&quot;:&quot;ruby&quot;,&quot;caption&quot;:&quot;Hi&quot;}\""))
+  end
+end

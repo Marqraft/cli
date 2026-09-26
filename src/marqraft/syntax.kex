@@ -1,0 +1,356 @@
+module Marqraft.Syntax
+
+# Syntax highlighting for Code blocks and fences. Kex goes through the
+# markdown package's highlighter; the other languages go through this small
+# table-driven lexer, a "good enough" tokenizer rather than a grammar: each
+# language names its comments, strings, keywords and a few quirks. Both emit
+# the same tok-* classes, so a theme colours every language alike. Published
+# pages carry the spans; the editor lays the same tokens over the text it
+# edits (the "highlight" action).
+#
+# Names here are deliberately specific (CodeToken, lexSource, ...): Kex
+# resolves names program-wide, and the markdown package's highlighter already
+# uses the plain ones.
+
+record CodeToken do
+  tokenClass : String
+  tokenText : String
+end
+
+record CodeSyntax do
+  # Line comments, and block comments as parallel lists of openers and closers.
+  lineMarks : [String]
+  blockOpens : [String]
+  blockCloses : [String]
+  # A line comment starts only at the start of a line or after a space, so a
+  # shell's `#` inside a URL is not one.
+  spacedComments : Bool
+  # Characters that open a string closed by the same character.
+  quoteMarks : String
+  # Characters a word may contain besides letters, digits and _: Ruby's ?,
+  # Haskell's ', Rust's macro !, CSS's and the shell's -.
+  wordMarks : String
+  # Characters that start a variable name: Ruby's @ivar, the shell's $VAR,
+  # Erlang's ?MACRO, CSS's @media.
+  sigilMarks : String
+  reservedWords : [String]
+  literalWords : [String]
+  # A capitalised word is a type (or, in Erlang, a variable).
+  capitalTypes : Bool
+  # A string or word followed by ":" is a key: JSON keys, CSS properties.
+  keyedStrings : Bool
+  keyedWords : Bool
+  # Tags, attributes and comments of HTML; the text between tags stays plain.
+  markupTags : Bool
+end
+
+# Code in `language` as HTML: highlighted when the language is one of these,
+# escaped as it is otherwise.
+foul highlightSource(code: String, language: String) -> String do
+  let name = canonicalLanguage(language)
+  return Markdown.Highlight.highlight(code) if name == "kex"
+  return escapeCode(code) if !syntaxLanguage?(name)
+  return renderSourceTokens(lexSource(code.chars, syntaxFor(name), []))
+end
+
+let syntaxLanguage?(name: String) -> Bool do
+  return ["kex", "rust", "erlang", "ruby", "haskell", "shell", "javascript", "json", "css", "html"].contains?(name)
+end
+
+# The name a language goes by here, from the names and extensions authors use.
+let canonicalLanguage(language: String) -> String = languageAlias(language.trim.lowerCase)
+
+languageAlias : String -> String
+let languageAlias("sh") = "shell"
+let languageAlias("bash") = "shell"
+let languageAlias("zsh") = "shell"
+let languageAlias("console") = "shell"
+let languageAlias("js") = "javascript"
+let languageAlias("jsx") = "javascript"
+let languageAlias("mjs") = "javascript"
+let languageAlias("ts") = "javascript"
+let languageAlias("typescript") = "javascript"
+let languageAlias("htm") = "html"
+let languageAlias("xml") = "html"
+let languageAlias("svg") = "html"
+let languageAlias("rs") = "rust"
+let languageAlias("rb") = "ruby"
+let languageAlias("hs") = "haskell"
+let languageAlias("erl") = "erlang"
+let languageAlias(name) = name
+
+let baseSyntax() -> CodeSyntax do
+  return CodeSyntax {
+    lineMarks: [], blockOpens: [], blockCloses: [], spacedComments: false,
+    quoteMarks: "\"", wordMarks: "", sigilMarks: "", reservedWords: [], literalWords: [],
+    capitalTypes: false, keyedStrings: false, keyedWords: false, markupTags: false
+  }
+end
+
+syntaxFor : String -> CodeSyntax
+let syntaxFor("rust") = CodeSyntax {
+  ...baseSyntax(), lineMarks: ["//"], blockOpens: ["/*"], blockCloses: ["*/"], wordMarks: "!", capitalTypes: true,
+  reservedWords: ["as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
+    "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "Self", "static", "struct", "super", "trait", "type", "unsafe", "use", "where", "while"],
+  literalWords: ["true", "false", "None", "Some", "Ok", "Err"]
+}
+let syntaxFor("erlang") = CodeSyntax {
+  ...baseSyntax(), lineMarks: ["%"], quoteMarks: "\"'", sigilMarks: "?", capitalTypes: true,
+  reservedWords: ["after", "and", "andalso", "band", "begin", "bnot", "bor", "bsl", "bsr", "bxor", "case",
+    "catch", "cond", "div", "else", "end", "fun", "if", "let", "maybe", "not", "of", "or", "orelse",
+    "receive", "rem", "try", "when", "xor"],
+  literalWords: ["true", "false", "ok", "error", "undefined"]
+}
+let syntaxFor("ruby") = CodeSyntax {
+  ...baseSyntax(), lineMarks: ["#"], blockOpens: ["=begin"], blockCloses: ["=end"], quoteMarks: "\"'`",
+  wordMarks: "?!", sigilMarks: "@$", capitalTypes: true,
+  reservedWords: ["BEGIN", "END", "alias", "and", "begin", "break", "case", "class", "def", "defined?", "do",
+    "else", "elsif", "end", "ensure", "for", "if", "in", "module", "next", "not", "or", "redo", "rescue",
+    "retry", "return", "super", "then", "undef", "unless", "until", "when", "while", "yield", "require",
+    "require_relative", "include", "extend", "attr_reader", "attr_writer", "attr_accessor", "private",
+    "protected", "public", "raise"],
+  literalWords: ["true", "false", "nil", "self"]
+}
+let syntaxFor("haskell") = CodeSyntax {
+  ...baseSyntax(), lineMarks: ["--"], blockOpens: ["{-"], blockCloses: ["-}"], wordMarks: "'", capitalTypes: true,
+  reservedWords: ["as", "case", "class", "data", "default", "deriving", "do", "else", "forall", "foreign",
+    "hiding", "if", "import", "in", "infix", "infixl", "infixr", "instance", "let", "module", "newtype",
+    "of", "qualified", "then", "type", "where"],
+  literalWords: ["True", "False", "Nothing", "Just", "Left", "Right", "otherwise"]
+}
+let syntaxFor("shell") = CodeSyntax {
+  ...baseSyntax(), lineMarks: ["#"], spacedComments: true, quoteMarks: "\"'`", wordMarks: "-", sigilMarks: "$",
+  reservedWords: ["if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
+    "in", "function", "return", "export", "local", "readonly", "set", "unset", "source", "exit"],
+  literalWords: ["true", "false"]
+}
+let syntaxFor("javascript") = CodeSyntax {
+  ...baseSyntax(), lineMarks: ["//"], blockOpens: ["/*"], blockCloses: ["*/"], quoteMarks: "\"'`", wordMarks: "$",
+  capitalTypes: true,
+  reservedWords: ["async", "await", "break", "case", "catch", "class", "const", "continue", "debugger",
+    "default", "delete", "do", "else", "enum", "export", "extends", "finally", "for", "from", "function",
+    "if", "implements", "import", "in", "instanceof", "interface", "let", "new", "of", "return", "static",
+    "super", "switch", "this", "throw", "try", "type", "typeof", "var", "void", "while", "with", "yield"],
+  literalWords: ["true", "false", "null", "undefined", "NaN", "Infinity"]
+}
+let syntaxFor("json") = CodeSyntax { ...baseSyntax(), keyedStrings: true, literalWords: ["true", "false", "null"] }
+let syntaxFor("css") = CodeSyntax {
+  ...baseSyntax(), blockOpens: ["/*"], blockCloses: ["*/"], quoteMarks: "\"'", wordMarks: "-", sigilMarks: "@",
+  keyedWords: true
+}
+let syntaxFor("html") = CodeSyntax { ...baseSyntax(), markupTags: true }
+let syntaxFor(_) = baseSyntax()
+
+# tokens accumulates newest-first; the final reverse restores source order.
+lexSource : [Char] -> CodeSyntax -> [CodeToken] -> [CodeToken]
+let lexSource(@[], _, tokens) = tokens.reverse
+let lexSource(cs, syntax, tokens) do
+  let (found, rest) = nextSourceToken(cs, syntax, tokens)
+  return lexSource(rest, syntax, found + tokens)
+end
+
+# The next token or tokens (newest-first) and the code after them.
+nextSourceToken : [Char] -> CodeSyntax -> [CodeToken] -> ([CodeToken], [Char])
+let nextSourceToken(@[], _, _) = ([], [])
+let nextSourceToken(@[c | rest], syntax, tokens) do
+  let cs = [c | rest]
+  if c.space?
+    let spaces = cs.takeWhile { |ch| ch.space? }
+    return ([sourceToken("plain", spaces)], cs.drop(spaces.count))
+  end
+  return lexMarkup(cs) if syntax.markupTags
+  let commentable = !syntax.spacedComments || afterSpace?(tokens)
+  if commentable && syntax.lineMarks.any? { |mark| startsWithText(cs, mark) }
+    let comment = cs.takeWhile { |ch| ch.codepoint != 10 }
+    return ([sourceToken("comment", comment)], cs.drop(comment.count))
+  end
+  let opener = openerIndex(syntax.blockOpens, cs, 0)
+  if opener >= 0
+    let commented = blockLength(cs, syntax.blockOpens.at(opener).or("").count, syntax.blockCloses.at(opener).or(""))
+    return ([sourceToken("comment", cs.take(commented))], cs.drop(commented))
+  end
+  if syntax.quoteMarks.chars.contains?(c)
+    let quoted = quotedLength(rest, c, 1)
+    let after = cs.drop(quoted)
+    let key? = syntax.keyedStrings && nextVisible(after) == ':'
+    let stringKind = key? then "field" else "string"
+    return ([sourceToken(stringKind, cs.take(quoted))], after)
+  end
+  if c.digit?
+    let digits = numberLength(cs)
+    return ([sourceToken("number", cs.take(digits))], cs.drop(digits))
+  end
+  if syntax.sigilMarks.chars.contains?(c) && wordStart?(rest.first.or(' '))
+    let name = rest.takeWhile { |ch| wordChar?(ch, syntax) }
+    return ([sourceToken("field", cs.take(1 + name.count))], cs.drop(1 + name.count))
+  end
+  return lexSourceWord(cs, syntax, tokens) if wordStart?(c)
+  let symbolKind = "(){}[],;".chars.contains?(c) then "punct" else "op"
+  return ([sourceToken(symbolKind, [c])], rest)
+end
+
+let lexSourceWord(cs: [Char], syntax: CodeSyntax, tokens: [CodeToken]) -> ([CodeToken], [Char]) do
+  let span = cs.takeWhile { |ch| wordChar?(ch, syntax) }
+  let word = charsText(span)
+  let rest = cs.drop(span.count)
+  let kind = wordClass(word, syntax, nextVisible(rest), afterDot?(tokens))
+  return ([CodeToken { tokenClass: kind, tokenText: word }], rest)
+end
+
+let wordClass(word: String, syntax: CodeSyntax, following: Char, dotted: Bool) -> String do
+  return "keyword" if syntax.reservedWords.contains?(word)
+  return "bool" if syntax.literalWords.contains?(word)
+  return "field" if syntax.keyedWords && following == ':'
+  return "type" if syntax.capitalTypes && word.chars.first.or('a').upper?
+  return "method" if dotted
+  return "fn" if following == '('
+  return "ident"
+end
+
+# HTML: comments, tags with their attributes, and plain text between them.
+let lexMarkup(cs: [Char]) -> ([CodeToken], [Char]) do
+  if startsWithText(cs, "<!--")
+    let length = blockLength(cs, 4, "-->")
+    return ([sourceToken("comment", cs.take(length))], cs.drop(length))
+  end
+  let tag? = match cs do
+    ['<', second | _] => second.letter? || second == '/' || second == '!'
+    _ => false
+  end
+  return lexTag(cs) if tag?
+  let text = cs.drop(1).takeWhile { |ch| ch != '<' && !ch.space? }
+  return ([sourceToken("plain", cs.take(1 + text.count))], cs.drop(1 + text.count))
+end
+
+let lexTag(cs: [Char]) -> ([CodeToken], [Char]) do
+  let opener = match cs do
+    [_, '/' | _] => 2
+    [_, '!' | _] => 2
+    _ => 1
+  end
+  let name = cs.drop(opener).takeWhile { |ch| markupNameChar?(ch) }
+  return tagAttributes(cs.drop(opener + name.count), [sourceToken("keyword", name), sourceToken("punct", cs.take(opener))])
+end
+
+tagAttributes : [Char] -> [CodeToken] -> ([CodeToken], [Char])
+let tagAttributes(@[], tokens) = (tokens, [])
+let tagAttributes(@[c | rest], tokens) do
+  let cs = [c | rest]
+  return ([sourceToken("punct", [c])] + tokens, rest) if c == '>'
+  return ([sourceToken("punct", cs.take(2))] + tokens, cs.drop(2)) if startsWithText(cs, "/>")
+  if "\"'".chars.contains?(c)
+    let length = quotedLength(rest, c, 1)
+    return tagAttributes(cs.drop(length), [sourceToken("string", cs.take(length))] + tokens)
+  end
+  if c.space?
+    let spaces = cs.takeWhile { |ch| ch.space? }
+    return tagAttributes(cs.drop(spaces.count), [sourceToken("plain", spaces)] + tokens)
+  end
+  if c.letter?
+    let name = cs.takeWhile { |ch| markupNameChar?(ch) }
+    return tagAttributes(cs.drop(name.count), [sourceToken("type", name)] + tokens)
+  end
+  return tagAttributes(rest, [sourceToken("op", [c])] + tokens)
+end
+
+let markupNameChar?(c: Char) -> Bool do
+  return c.letter? || c.digit? || c == '-' || c == ':' || c == '_'
+end
+
+# The length of a block comment from its opener through its closer, or to the
+# end of the code when it is never closed.
+let blockLength(cs: [Char], opened: Integer, close: String) -> Integer do
+  return closerEnd(cs.drop(opened), close, opened)
+end
+
+closerEnd : [Char] -> String -> Integer -> Integer
+let closerEnd(@[], _, at) = at
+let closerEnd(@[c | rest], close, at) do
+  return startsWithText([c | rest], close) then at + close.count else closerEnd(rest, close, at + 1)
+end
+
+# The length of a string from its opening quote (already counted in `at`)
+# through the closing one; backslash escapes are skipped whole.
+quotedLength : [Char] -> Char -> Integer -> Integer
+let quotedLength(@[], _, at) = at
+let quotedLength(@[c | rest], quote, at) do
+  return at + 1 if c == quote
+  return quotedLength(rest.drop(1), quote, at + 2) if c == '\\' && !rest.empty?
+  return quotedLength(rest, quote, at + 1)
+end
+
+# Digits with any letters and underscores that follow (0x1F, 1_000, 12px),
+# and a fraction when a digit follows the point (3.14, but 1..10 stays a range).
+let numberLength(cs: [Char]) -> Integer do
+  let whole = cs.takeWhile { |ch| ch.letter? || ch.digit? || ch == '_' }
+  let rest = cs.drop(whole.count)
+  let fraction? = match rest do
+    ['.', digit | _] => digit.digit?
+    _ => false
+  end
+  return whole.count if !fraction?
+  return whole.count + 1 + rest.drop(1).takeWhile { |ch| ch.letter? || ch.digit? || ch == '_' }.count
+end
+
+# The index of the block comment opener the code starts with, or -1.
+openerIndex : [String] -> [Char] -> Integer -> Integer
+let openerIndex(@[], _, _) = -1
+let openerIndex(@[open | others], cs, index) do
+  return startsWithText(cs, open) then index else openerIndex(others, cs, index + 1)
+end
+
+let wordStart?(c: Char) -> Bool do
+  return c.letter? || c == '_'
+end
+
+let wordChar?(c: Char, syntax: CodeSyntax) -> Bool do
+  return c.letter? || c.digit? || c == '_' || syntax.wordMarks.chars.contains?(c)
+end
+
+# The first character after spaces and tabs on the same line.
+let nextVisible(cs: [Char]) -> Char do
+  return cs.dropWhile { |ch| ch == ' ' || ch.codepoint == 9 }.first.or(' ')
+end
+
+# Whether the last token was whitespace, or there was none: the start of a line or a word.
+let afterSpace?(tokens: [CodeToken]) -> Bool do
+  match tokens.first do
+    Just(token) => return token.tokenClass == "plain" && token.tokenText.trim.empty?
+    None => return true
+  end
+end
+
+# Whether the last token that is not whitespace was a ".".
+let afterDot?(tokens: [CodeToken]) -> Bool do
+  match tokens.find { |token| !(token.tokenClass == "plain" && token.tokenText.trim.empty?) } do
+    Just(token) => return token.tokenText == "."
+    None => return false
+  end
+end
+
+let sourceToken(kind: String, cs: [Char]) -> CodeToken do
+  return CodeToken { tokenClass: kind, tokenText: charsText(cs) }
+end
+
+let renderSourceTokens(tokens: [CodeToken]) -> String do
+  return tokens.map { |token| renderSourceToken(token) }.join("")
+end
+
+let renderSourceToken(token: CodeToken) -> String do
+  let text = escapeCode(token.tokenText)
+  return text if token.tokenClass == "plain" || token.tokenClass == "ident"
+  return "<span class=\"tok-${token.tokenClass}\">${text}</span>"
+end
+
+let escapeCode(text: String) -> String do
+  return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+end
+
+let charsText(cs: [Char]) -> String do
+  return cs.map { |c| c.string }.join("")
+end
+
+let startsWithText(cs: [Char], text: String) -> Bool do
+  return cs.take(text.count) == text.chars
+end

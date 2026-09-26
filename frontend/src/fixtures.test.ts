@@ -4,12 +4,12 @@ import { generateJSON, type JSONContent } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
-import { MarqAlert, MarqArea, MarqCode, MarqTabs, SourceBlock, SourceSlices } from './nodes';
+import { MarqAlert, MarqArea, MarqCode, MarqFence, MarqTabs, SourceBlock, SourceSlices } from './nodes';
 import { preserveSlices, serialize } from './format';
 import source from '../../fixtures/content/round-trip.md?raw';
 import html from '../../fixtures/content/round-trip.html?raw';
 
-const extensions = [StarterKit.configure({ trailingNode: false }), TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices];
+const extensions = [StarterKit.configure({ trailingNode: false, codeBlock: false }), MarqFence, TableKit, Image.configure({ inline: true }), MarqCode, MarqTabs, MarqArea, MarqAlert, SourceBlock, SourceSlices];
 const load = () => preserveSlices(generateJSON(html, extensions));
 
 describe('shared round-trip fixture', () => {

@@ -112,11 +112,14 @@ foul renderLines(lines: [String], authoring?: Bool, output: String, root: String
     end
   end
   # A fenced body can contain apparent custom tags; keep it as one Markdown slice.
+  # A fence is closed by a line of at least as many backticks as opened it.
   if line.trim.startsWith?("```")
-    let middle = lines.drop(1).takeWhile { |item| !item.trim.startsWith?("```") }
+    let ticks = line.trim.chars.takeWhile { |c| c == '`' }.count
+    let middle = lines.drop(1).takeWhile { |item| !closingFence?(item, ticks) }
     let size = middle.count + 2
     let fenceSource = lines.take(size).join("\n")
-    let fenceHtml = authoring? then Markdown.toAuthoringHtml(fenceSource) else Markdown.toHtml(fenceSource)
+    let info = fenceInfo(line.trim.drop(ticks))
+    let fenceHtml = authoring? then authoringFence(info, middle.join("\n")) else publishedFence(info, middle.join("\n"))
     return renderLines(lines.drop(size), authoring?, output + original(fenceHtml, fenceSource, authoring?), root, definitions)
   end
   let available = lines.takeWhile { |item| !item.trim.startsWith?("<") && !item.trim.startsWith?("```") }
@@ -158,13 +161,11 @@ foul renderElement(node: Element, authoring?: Bool, root: String = "", definitio
   let attrs = node.attributes
   if node.name == "marqraft-code"
     let meta = authoring? then " data-marq-code=\"${escape(JSON.stringify(attrs))}\"" else ""
-    let filename = attrs.get("filename").or("")
-    let caption = attrs.get("caption").or("")
     # The editor edits code as plain text and highlights it with decorations
     # (the "highlight" action); only published pages carry the spans.
-    let highlighted? = !authoring? && attrs.get("language").or("") == "kex"
-    let code = highlighted? then Markdown.Highlight.highlight(unescape(node.body)) else escape(unescape(node.body))
-    return "<figure class=\"marq-code\"${meta}><figcaption>${escape(filename)}</figcaption><pre class=\"code\"><code>${code}</code></pre><small>${escape(caption)}</small></figure>"
+    let body = unescape(node.body)
+    return "<figure class=\"marq-code\"${meta}><pre class=\"code\"><code>${escape(body)}</code></pre></figure>" if authoring?
+    return codeWindow(attrs, body)
   end
   if node.name == "marqraft-tabs"
     let children = areas(node.body, [], []).or([])
@@ -179,6 +180,61 @@ foul renderElement(node: Element, authoring?: Bool, root: String = "", definitio
     return "<div class=\"marq-tabs\"${tabsMeta}>${content}</div>"
   end
   return fallback(node.source, authoring?)
+end
+
+# A fence's info string: the language first, as GitHub reads it, then
+# optional attributes in the same form as an element's, which GitHub ignores:
+#   ```rust filename="src/main.rs" caption="The entry point."
+let fenceInfo(info: String) -> {String: String} do
+  let text = info.trim
+  let first = text.split(" ").first.or("")
+  let named? = first.contains?("=")
+  let language = named? then "" else first
+  let rest = named? then text else text.drop(first.count)
+  match element("<marqraft-fence ${rest}></marqraft-fence>") do
+    Ok(node) => return node.attributes.put("language", language)
+    Error(_) => return { "language": language }
+  end
+end
+
+let closingFence?(line: String, ticks: Integer) -> Bool do
+  let fence = line.trim
+  return fence.count >= ticks && !fence.chars.any? { |c| c != '`' }
+end
+
+# The editor reads a fence's code and info from this; the window is its own.
+let authoringFence(info: {String: String}, body: String) -> String do
+  return "<figure class=\"marq-code\" data-marq-fence=\"${escape(JSON.stringify(info))}\"><pre class=\"code\"><code>${escape(body)}</code></pre></figure>"
+end
+
+foul publishedFence(info: {String: String}, body: String) -> String do
+  return codeWindow(info, body)
+end
+
+# Code as a window, for fences and Code blocks alike: the bar, the code
+# highlighted in its language, and the caption when there is one.
+foul codeWindow(attrs: {String: String}, body: String) -> String do
+  let language = attrs.get("language").or("")
+  let caption = attrs.get("caption").or("")
+  let captionHtml = caption.empty? then "" else "<figcaption>${escape(caption)}</figcaption>"
+  let code = Marqraft.Syntax.highlightSource(body, language)
+  return "<figure class=\"marq-code\" data-language=\"${escape(language)}\">${codeBar(attrs.get("filename").or(""), language)}<pre class=\"code\"><code>${code}</code></pre>${captionHtml}</figure>"
+end
+
+# A Code block's window bar: three dots, the filename (or, without one, the
+# language), and a button that copies the code. The button needs no script
+# on the page, so it works on a static site.
+let codeBar(filename: String, language: String) -> String do
+  let plain? = language.empty? || language == "text"
+  let label = if !filename.empty?
+    "<span class=\"marq-code-file\">${escape(filename)}</span>"
+  elif !plain?
+    "<span class=\"marq-code-language\">${escape(language)}</span>"
+  else
+    ""
+  end
+  let copy = "navigator.clipboard.writeText(this.closest('figure').querySelector('pre').innerText).then(() => { this.textContent = 'Copied'; setTimeout(() => { this.textContent = 'Copy' }, 1500) })"
+  return "<div class=\"marq-code-bar\"><span class=\"marq-code-dots\" aria-hidden=\"true\"><i></i><i></i><i></i></span>${label}<button type=\"button\" class=\"marq-code-copy\" aria-label=\"Copy code\" onclick=\"${escape(copy)}\">Copy</button></div>"
 end
 
 let areas(source: String, result: [Element], ids: [String]) -> [Element] or! String do

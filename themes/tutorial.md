@@ -2,11 +2,11 @@
 
 Kex projects are managed with Tey. Create an application, then build and run it from the project directory.
 
-<marqraft-code language="shell" filename="terminal">
+```shell
 tey new hello
 cd hello
 tey run
-</marqraft-code>
+```
 
 > [!TIP]
 > Type `/` anywhere in a chapter to insert code, tabs, or a callout like this one.

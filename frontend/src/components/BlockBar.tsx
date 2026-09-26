@@ -10,6 +10,8 @@ import { Tooltip } from './ui/tooltip';
 type Props = {
   editor: Editor; getPos: () => number | undefined; label: string; fields: Field[];
   settings: Record<string, string>; children?: React.ReactNode;
+  /** Where a changed setting goes; by default, the block's `settings` attribute. */
+  change?: (key: string, value: string) => void;
 };
 
 /** Sets one of a block's settings, as its settings popover or its own inline fields do. */
@@ -20,9 +22,9 @@ export function updateSetting(editor: Editor, getPos: () => number | undefined, 
 }
 
 /** Hover chrome for a block: its name, generated settings, delete. It is moved with the BlockHandle every block has. Hidden in preview and output. */
-export function BlockBar({ editor, getPos, label, fields, settings, children }: Props) {
+export function BlockBar({ editor, getPos, label, fields, settings, children, change }: Props) {
   const [open, setOpen] = useState(false);
-  const update = (key: string, value: string) => updateSetting(editor, getPos, key, value);
+  const update = change ?? ((key: string, value: string) => updateSetting(editor, getPos, key, value));
   const remove = () => { const pos = getPos(); if (pos === undefined) return; const node = editor.state.doc.nodeAt(pos); if (node) editor.chain().focus().deleteRange({ from: pos, to: pos + node.nodeSize }).run(); };
   return (
     <div contentEditable={false} data-marq-chrome className="marq-ui marq-block-bar marq-authoring-only mq:absolute mq:-top-3.5 mq:right-2 mq:z-20 mq:flex mq:items-center mq:gap-0.5 mq:rounded-md mq:border mq:border-border mq:bg-background mq:p-0.5 mq:shadow-sm" data-open={open}>

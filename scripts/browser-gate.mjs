@@ -99,7 +99,11 @@ try {
   step('code blocks are windows: filename and caption typed in place, any language highlighted');
   const window = page.locator('.site-content .marq-code').first();
   await window.hover();
-  await window.getByRole('textbox', { name: 'Caption', exact: true }).fill('Prints a greeting');
+  // A fence's settings are its language, filename and caption, as on any block.
+  await page.getByRole('button', { name: 'Code settings', exact: true }).first().click();
+  await page.getByRole('dialog').getByLabel('Caption', { exact: true }).fill('Prints a greeting');
+  await page.keyboard.press('Escape');
+  assert.equal(await window.getByRole('textbox', { name: 'Caption', exact: true }).inputValue(), 'Prints a greeting');
   await window.getByRole('combobox', { name: 'Language' }).selectOption('ruby');
   // IO is a constant in Ruby, coloured by the server's Ruby highlighter.
   await window.locator('pre .tok-type', { hasText: 'IO' }).first().waitFor();

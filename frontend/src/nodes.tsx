@@ -11,6 +11,7 @@ import { Badge } from './components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import { Tooltip } from './components/ui/tooltip';
 import { blockDefinition } from './registry';
+import type { Field } from './types';
 
 const settings = (element: HTMLElement, name: string) => {
   try { return JSON.parse(element.getAttribute(name) ?? '{}'); } catch { return {}; }
@@ -74,10 +75,27 @@ function CodeWindow({ fields, update, text, children }: { fields: CodeFields; up
 function FenceView(props: NodeViewProps) {
   const attrs = props.node.attrs as { language: string | null; filename: string; caption: string };
   const fields = { language: attrs.language ?? '', filename: attrs.filename ?? '', caption: attrs.caption ?? '' };
+  const update = (key: string, value: string) => props.updateAttributes({ [key]: key === 'language' ? value || null : value });
   return <NodeViewWrapper as="figure" className="marq-code marq-block" data-language={fields.language} data-testid="code-block">
-    <CodeWindow fields={fields} text={props.node.textContent}
-      update={(key, value) => props.updateAttributes({ [key]: key === 'language' ? value || null : value })} />
+    <CodeWindow fields={fields} text={props.node.textContent} update={update}>
+      <BlockBar editor={props.editor} getPos={props.getPos} label="Code" fields={fenceSettings(fields.language)} settings={fields} change={update} />
+    </CodeWindow>
   </NodeViewWrapper>;
+}
+
+/**
+ * The settings a fence has: its language, filename and caption. The theme's
+ * code block may label them and list the languages; a fence has nowhere to
+ * keep any other setting.
+ */
+function fenceSettings(language: string): Field[] {
+  const theme = blockDefinition('code')?.settings ?? [];
+  const field = (name: string, fallback: Field): Field => ({ ...fallback, ...theme.find(item => item.name === name), name });
+  return [
+    { ...field('language', { name: 'language', label: 'Language', type: 'enum' }), options: codeLanguages(language) },
+    field('filename', { name: 'filename', label: 'Filename', type: 'text' }),
+    field('caption', { name: 'caption', label: 'Caption', type: 'text' }),
+  ];
 }
 
 /** A <marqraft-code> block, as older pages have them: the same window, with the theme's settings. */

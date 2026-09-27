@@ -189,7 +189,9 @@ let groupPages(group: MountPages) -> [Page] do
   let mount = group.mount
   let modules = group.pages.map { |page| Page { ...page, version: directoryVersion(mount, pageFile(page)) } }
   let roots = modules.filter { |page| isModulePage(page, mount.dir) && pageRel(pageFile(page), mount.dir).split("/").count == 1 }
-  let indexes = mount.versions.map { |version| versionIndex(mount, version, modules) } + [rootIndex(mount, roots)]
+  let synthetic = mount.versions.map { |version| versionIndex(mount, version, modules) }
+  let versionIndexes = synthetic.map { |index| modules.find { |other| pageId(other) == pageId(index) }.or(index) }
+  let indexes = synthetic + [rootIndex(mount, roots, versionIndexes)]
   return modules + indexes.filter { |page| !modules.any? { |other| pageId(other) == pageId(page) } }
 end
 
@@ -220,11 +222,20 @@ let directoryVersion(mount: Mount, file: String) -> String do
   return mount.versions.any? { |version| version.name == first } then first else ""
 end
 
-let rootIndex(mount: Mount, roots: [Page]) -> Page do
-  let versionItems = mount.versions.map { |version| "- [${linkText(version.name)}](${version.url})" }.join("\n")
-  let rootItems = roots.map { |page| "- [${linkText(pageTitle(page))}](${pagePath(page)})" }.join("\n")
-  let body = [versionItems, rootItems].filter { |part| !part.empty? }.join("\n")
-  return generatedPage(mount.dir, mountIndexId(mount.url, ""), mount.title, mount.url, mount.template, body, body)
+# The mount root opens the newest version's index — a reader arriving at
+# /prelude/ wants the current reference, not a list of releases to pick
+# from; the version switcher on that page reaches the others. Without
+# versions, it lists the pages at the mount's root.
+let rootIndex(mount: Mount, roots: [Page], versionIndexes: [Page]) -> Page do
+  let root = mountIndexId(mount.url, "")
+  let newest = newestVersion(mount).map { |version| mountIndexId(mount.url, version.name) }.or("")
+  match versionIndexes.find { |index| pageId(index) == newest } do
+    Just(index) => Page { ...index, id: root, path: mount.url }
+    None => do
+      let body = roots.map { |page| "- [${linkText(pageTitle(page))}](${pagePath(page)})" }.join("\n")
+      generatedPage(mount.dir, root, mount.title, mount.url, mount.template, body, body)
+    end
+  end
 end
 
 let mountIndexId(prefix: String, name: String) -> String do

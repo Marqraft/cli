@@ -90,10 +90,11 @@ describe "generated mounts" do
     assert(index.body.contains?("[Algebra](/prelude/0.4/algebra/)"))
     # Generated pages belong to the version directory they sit in.
     assert(algebra.version == "0.4" && index.version == "0.4")
+    # The mount root opens the newest version's index, not a version list.
     let landing = Marqraft.Project.page(site, "mount-prelude").try
-    assert(landing.version == "")
+    assert(landing.version == "0.4")
     assert(landing.path == "/prelude/")
-    assert(landing.body.contains?("[0.4](/prelude/0.4/)"))
+    assert(landing.body.contains?("[Algebra](/prelude/0.4/algebra/)"))
     assert(!Marqraft.Routes.mountedFile(Marqraft.Project.load(root).try, "prelude/0.4/algebra.md").ok?)
     assert(!Marqraft.Pages.save(root, algebra.id, algebra.revision, algebra.source).ok?)
     assert(!Marqraft.API.document(root, algebra.id).ok?)
@@ -164,6 +165,10 @@ describe "mount versions and search" do
     let switcher = Marqraft.Theme.versionsHtml(site, binary, "0.10")
     assert(switcher.contains?("<option value=\"/prelude/0.10/binary/\" selected>0.10</option>"))
     assert(switcher.contains?("<option value=\"/prelude/0.9/\">0.9</option>"))
+    # The mount root is the newest version's index, with the switcher.
+    let landing = Marqraft.Project.page(site, "mount-prelude").try
+    assert(landing.path == "/prelude/" && landing.body.contains?("[Binary](/prelude/0.10/binary/)"))
+    assert(Marqraft.Theme.versionsHtml(site, landing, landing.version).contains?("<option value=\"/prelude/0.9/\">0.9</option>"))
     let algebra = Marqraft.Project.page(site, "mount-prelude-0-9-algebra").try
     assert(Marqraft.Theme.versionsHtml(site, algebra, "0.9").contains?("<option value=\"/prelude/0.10/algebra/\">0.10</option>"))
     # Search holds the newest version's entries, with site URLs.

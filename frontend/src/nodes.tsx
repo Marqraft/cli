@@ -31,7 +31,7 @@ export const SourceSlices = Extension.create({
 const newArea = (label: string) => ({ type: 'marqArea', attrs: { settings: { id: crypto.randomUUID(), label } }, content: [{ type: 'paragraph' }] });
 
 // The languages Marqraft highlights, offered when a theme does not list its own.
-const highlightedLanguages = ['kex', 'rust', 'erlang', 'ruby', 'haskell', 'javascript', 'html', 'css', 'json', 'shell', 'text'];
+const highlightedLanguages = ['kex', 'rust', 'erlang', 'elixir', 'ruby', 'haskell', 'javascript', 'html', 'css', 'json', 'shell', 'text'];
 
 /** The code languages to choose from: the theme's code block options, or Marqraft's. */
 function codeLanguages(current: string): string[] {

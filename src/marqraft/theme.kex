@@ -101,7 +101,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
   end
   let version = pageVersion(page).empty? then collectionVersion else pageVersion(page)
   let collections = collectionsHtml(site, page.id, authoring?)
-  let members = navigation(site, collectionNodes.flatMap { |node| node.children }, authoring?, page.id)
+  let members = navigation(site, versionMembers(site, collectionNodes.flatMap { |node| node.children }, version), authoring?, page.id)
   let menus = menuContext(site, page, Marqraft.Menus.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
   let base = {
     "title": page.title, "description": page.description, "path": page.path,
@@ -301,6 +301,27 @@ let titleOf(page: Page) -> String = page.title
 let pathOf(page: Page) -> String = page.path
 let pageFileOf(page: Page) -> String = page.file
 let pageVersion(page: Page) -> String = page.version
+
+# A mount's members are one node per version, each holding that version's
+# whole tree. The reader is in one version, and the switcher reaches the
+# others, so only that version's node is listed — /prelude/ listed every
+# module of all thirteen releases. Members that name no version are kept, and
+# a collection without versions is unchanged.
+foul versionMembers(site: Site, nodes: [NavNode], version: String) -> [NavNode] do
+  let versioned = nodes.filter { |node| !nodeVersion(site, node).empty? }
+  return nodes if versioned.empty? || version.empty?
+  return nodes.filter do |node|
+    let own = nodeVersion(site, node)
+    own.empty? || own == version
+  end
+end
+
+foul nodeVersion(site: Site, node: NavNode) -> String do
+  match Marqraft.Project.page(site, node.id) do
+    Ok(page) => pageVersion(page)
+    Error(_) => ""
+  end
+end
 
 # The top-level navigation entries: one link per collection. The collection
 # holding the current page is marked aria-current="true", the page itself "page".

@@ -171,6 +171,10 @@ describe "mount versions and search" do
     assert(Marqraft.Theme.versionsHtml(site, landing, landing.version).contains?("<option value=\"/prelude/0.9/\">0.9</option>"))
     let algebra = Marqraft.Project.page(site, "mount-prelude-0-9-algebra").try
     assert(Marqraft.Theme.versionsHtml(site, algebra, "0.9").contains?("<option value=\"/prelude/0.10/algebra/\">0.10</option>"))
+    # The sidebar lists only the version being read; the root reads the newest.
+    let members = Marqraft.Navigation.collectionOf(site.navigation, "mount-prelude-0-9-algebra").try.children
+    assert(Marqraft.Theme.versionMembers(site, members, "0.9").map { |node| node.id } == ["mount-prelude-0-9"])
+    assert(Marqraft.Theme.versionMembers(site, members, landing.version).map { |node| node.id } == ["mount-prelude-0-10"])
     # Search holds the newest version's entries, with site URLs.
     let entries = Marqraft.Data.list(Marqraft.Data.object(Marqraft.Data.decode(Marqraft.Search.index(site).try).try).try.get("entries").or([])).try
     let combine = entries.find { |entry| Marqraft.Data.text(entry, "name", "") == "combine" }.try

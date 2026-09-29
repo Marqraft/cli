@@ -245,7 +245,7 @@ let cssVariable(field: Any, settings: {String: Any}) -> String do
     let low = Marqraft.Data.integer(field, "min", 0)
     let high = Marqraft.Data.integer(field, "max", 100000)
     let unit = Marqraft.Data.text(field, "unit", "px")
-    let number = bounded(Integer.parse(value).or(Integer.parse(fallback).or(low)), low, high)
+    let number = Integer.parse(value).or(Integer.parse(fallback).or(low)).clamp(low, high)
     return ["px", "rem", "em", "%", ""].contains?(unit) then "--marq-${name}:${number}${unit};" else ""
   end
   return ""
@@ -415,12 +415,6 @@ foul pager(site: Site, page: Page, authoring?: Bool, nodes: [NavNode]) -> String
   end
   return "" if !previous.set? && !following.set?
   return "<nav class=\"marq-pager\" aria-label=\"Reading order\">${before}${after}</nav>"
-end
-
-let bounded(value: Integer, low: Integer, high: Integer) -> Integer do
-  return low if value < low
-  return high if value > high
-  return value
 end
 
 foul template(root: String, relative: String, context: {String: Any}) -> String or! String do

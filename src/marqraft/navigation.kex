@@ -85,9 +85,9 @@ end
 foul generatedCollections(site: Site) -> [Any] do
   let ids = generatedIds(site)
   let tops = site.navigation.map { |node| node.id }.filter { |id| ids.contains?(id) }
-  let found = tops.map { |id| site.pages.find { |item| pageId(item) == id } }.filter { |item| item.set? }
+  let found = tops.collect { |id| site.pages.find { |item| pageId(item) == id } }
   return found.map do |item|
-    let entry: Any = { "id": pageId(item.try), "title": pageTitle(item.try), "path": pagePath(item.try) }
+    let entry: Any = { "id": pageId(item), "title": pageTitle(item), "path": pagePath(item) }
     entry
   end
 end

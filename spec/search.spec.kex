@@ -5,7 +5,7 @@ describe "search index" do
     let root = "${FS.Directory.temporary}/marqraft-search-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "basic").try
     let config = FS.File.read(root + "/marqraft.jsonc").try
-    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search.json\",")))
+    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search.json\",")).ok?)
     Marqraft.Pages.createPage(root, "Draft", "/draft/", "page", "").try
     let site = Marqraft.Project.load(root).try
     assert(Marqraft.Search.indexPath(site) == "/search.json")
@@ -26,7 +26,7 @@ describe "search index" do
     let root = "${FS.Directory.temporary}/marqraft-search-path-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, "basic").try
     let config = FS.File.read(root + "/marqraft.jsonc").try
-    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search/\",")))
+    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search/\",")).ok?)
     assert(!Marqraft.Project.load(root).ok?)
   end
 end

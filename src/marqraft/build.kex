@@ -54,7 +54,7 @@ foul write(site: Site, stage: String, output: SiteOutput) -> Void or! String do
   let target = Marqraft.Store.safePath(site.root, relative).try
   return Error("cannot create a directory for ${output.dest}") if !FS.Directory.create(FS.Path.dirname(target))
   let copied = FS.File.writeBytes(target, FS.File.readBytes(Marqraft.Store.safePath(site.root, output.source).try).try)
-  return Error("cannot copy ${output.label} ${output.dest}") if !copied
+  return Error("cannot copy ${output.label} ${output.dest}") if copied.error?
   return Ok(())
 end
 

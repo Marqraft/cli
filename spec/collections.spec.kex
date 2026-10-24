@@ -11,7 +11,7 @@ describe "collections" do
         source
       end
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
-      assert(FS.File.write(external + "/" + path, text))
+      assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-collections-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
@@ -47,7 +47,7 @@ describe "collections" do
         source
       end
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
-      assert(FS.File.write(external + "/" + path, text))
+      assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-home-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
@@ -70,7 +70,7 @@ describe "collections" do
     let nested: Any = { "id": old.id, "children": [] }
     let legacyHome: Any = { "id": home.id, "children": [nested] }
     let legacyTutorial: Any = { "id": tutorial.id, "children": [] }
-    assert(FS.File.write(navFile, Marqraft.Data.pretty([legacyHome, legacyTutorial])))
+    assert(FS.File.write(navFile, Marqraft.Data.pretty([legacyHome, legacyTutorial])).ok?)
     let legacy = Marqraft.Project.load(root).try
     assert(legacy.navigation.map { |node| node.id } == [old.id, tutorial.id])
     # ...and navigation.json drops the entry on its next save.
@@ -85,7 +85,7 @@ describe "collections" do
       let (path, source) = entry
       let text = path == "page.html.ket" then source.replace("<marqraft-content source=\"body\"></marqraft-content>", "<p class=\"lede\"><marqraft-content source=\"description\"></marqraft-content></p><marqraft-content source=\"body\"></marqraft-content>") else source
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
-      assert(FS.File.write(external + "/" + path, text))
+      assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-description-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
@@ -103,7 +103,7 @@ describe "collections" do
       let (path, source) = entry
       let text = path == "page.html.ket" then source.replace("<marqraft-content source=\"title\"></marqraft-content>", "<p class=\"version\"><%= context[\"version\"].or(\"\") %></p><marqraft-content source=\"title\"></marqraft-content>") else source
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
-      assert(FS.File.write(external + "/" + path, text))
+      assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-version-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try

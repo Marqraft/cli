@@ -236,7 +236,7 @@ foul upload(root: String, data: {String: Any}) -> {String: Any} or! String do
   return Error("asset collision") if FS.File.file?(target)
   return Error("cannot create the upload folder") if !FS.Directory.create(FS.Path.dirname(target))
   let temporary = target + ".marq-upload"
-  return Error("cannot persist upload") if !FS.File.writeBytes(temporary, bytes)
+  return Error("cannot persist upload") if FS.File.writeBytes(temporary, bytes).error?
   if !FS.File.rename(temporary, target)
     let _ = FS.File.delete(temporary)
     return Error("cannot finalize upload")

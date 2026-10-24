@@ -11,11 +11,11 @@ describe "theme assets, favicons and uploads" do
       let uploads = Marqraft.Data.decode("{ \"images\": \"assets/img\" }").try
       let text = path == "marqraft-theme.jsonc" then Marqraft.Data.pretty(manifest.put("favicons", icons).put("uploads", uploads)) else source
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
-      assert(FS.File.write(external + "/" + path, text))
+      assert(FS.File.write(external + "/" + path, text).ok?)
     end
     assert(FS.Directory.create(external + "/assets"))
     # Not valid UTF-8: theme assets are copied as bytes.
-    assert(FS.File.writeBytes(external + "/assets/icon.png", Binary.fromBytes([137, 80, 78, 71, 0, 255, 254, 1])))
+    assert(FS.File.writeBytes(external + "/assets/icon.png", Binary.fromBytes([137, 80, 78, 71, 0, 255, 254, 1])).ok?)
 
     let root = "${FS.Directory.temporary}/marqraft-assets-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try

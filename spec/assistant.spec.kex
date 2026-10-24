@@ -25,7 +25,7 @@ describe "the writing assistant" do
     let (dir, root) = setUp("command")
     ENV.set("MARQ_CLAUDE", "${dir}/no-such-claude")
     let config = dir + "/assistant.json"
-    assert(FS.File.write(config, "{ \"provider\": \"local\", \"models\": { \"fast\": \"tiny\" }, \"providers\": { \"local\": { \"name\": \"Local\", \"command\": \"${fake()}\", \"args\": [\"run\", \"--model={model}\", \"{prompt}\"] } } }"))
+    assert(FS.File.write(config, "{ \"provider\": \"local\", \"models\": { \"fast\": \"tiny\" }, \"providers\": { \"local\": { \"name\": \"Local\", \"command\": \"${fake()}\", \"args\": [\"run\", \"--model={model}\", \"{prompt}\"] } } }").ok?)
     ENV.set("MARQ_ASSISTANT_CONFIG", config)
     assert(reply(dir, "", " and then some.\n"))
     let answer = Marqraft.Assistant.ask(root, [], { "task": "complete", "before": "It began", "after": "" }).try
@@ -91,7 +91,7 @@ foul tearDown() -> Void do
   ["MARQ_CLAUDE", "MARQ_ASSISTANT_CONFIG", "FAKE_ASSISTANT"].each { |name| let _ = ENV.unset(name) }
 end
 
-foul reply(dir: String, n: String, text: String) -> Bool = FS.File.write(dir + (n == "" then "/reply" else "/reply.${n}"), text)
+foul reply(dir: String, n: String, text: String) -> Bool = FS.File.write(dir + (n == "" then "/reply" else "/reply.${n}"), text).ok?
 
 # A claude CLI result holding `text`, already escaped for a JSON string.
 let envelope(text: String) -> String = "{\"type\":\"result\",\"is_error\":false,\"result\":\"${text}\"}"

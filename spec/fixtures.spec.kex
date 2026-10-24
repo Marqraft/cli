@@ -4,7 +4,7 @@ describe "shared content fixtures" do
     let html = Marqraft.Content.render(source, true, "", [])
     let golden = "fixtures/content/round-trip.html"
     if !FS.File.file?(golden)
-      assert(FS.File.write(golden, html))
+      assert(FS.File.write(golden, html).ok?)
     end
     assert(FS.File.read(golden).try == html)
   end

@@ -13,7 +13,7 @@ describe "theme menus" do
         source
       end
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
-      assert(FS.File.write(external + "/" + path, text))
+      assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-menu-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try

@@ -156,7 +156,7 @@ describe "mount versions and search" do
     Marqraft.Store.write(root, "reference/prelude/0.9/search.json", "{\"entries\": [{\"name\": \"old\", \"urlPath\": \"algebra\"}]}").try
     Marqraft.Store.write(root, "reference/prelude/0.10/search.json", "{\"entries\": [{\"name\": \"combine\", \"kind\": \"function\", \"urlPath\": \"algebra\", \"anchor\": \"combine\"}]}").try
     let config = FS.File.read(root + "/marqraft.jsonc").try
-    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search.json\",")))
+    assert(FS.File.write(root + "/marqraft.jsonc", config.replace("{", "{ \"search\": \"/search.json\",")).ok?)
     withMounts(root, "[{\"path\": \"/prelude/\", \"dir\": \"reference/prelude\", \"pages\": true, \"title\": \"Prelude\", \"search\": \"search.json\"}]").try
     let site = Marqraft.Project.load(root).try
     assert(Marqraft.Mounts.newestVersion(site.mounts.first.try).try.name == "0.10")

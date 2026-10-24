@@ -52,14 +52,14 @@ describe "theme selection" do
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
-      assert(FS.File.write(external + "/" + path, source))
+      assert(FS.File.write(external + "/" + path, source).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-external-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     assert(Marqraft.Data.text(Marqraft.Data.read(root + "/marqraft.jsonc").try, "theme", "") == Marqraft.Store.realPath(external).try)
     let site = Marqraft.Project.load(root).try
     assert(site.themeDir.startsWith?(".marqraft/cache/themes/docs-theme-"))
-    assert(FS.File.write(external + "/style.css", "body{color:#123456}"))
+    assert(FS.File.write(external + "/style.css", "body{color:#123456}").ok?)
     let changed = Marqraft.Project.load(root).try
     assert(changed.themeDir != site.themeDir)
     let home = changed.pages.find { |page| page.path == "/" }.try

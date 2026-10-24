@@ -69,7 +69,7 @@ foul write(root: String, relative: String, source: String) -> Void or! String do
   let target = safePath(root, relative).try
   return Error("cannot create parent directory") if !FS.Directory.create(FS.Path.dirname(target))
   let temporary = target + ".marq-" + identifier
-  return Error("cannot write temporary file") if !FS.File.write(temporary, source)
+  return Error("cannot write temporary file") if FS.File.write(temporary, source).error?
   if !FS.File.rename(temporary, target)
     let _ = FS.File.delete(temporary)
     return Error("atomic replacement failed")

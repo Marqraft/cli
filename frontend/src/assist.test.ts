@@ -5,11 +5,17 @@ import StarterKit from '@tiptap/starter-kit';
 import { SourceSlices } from './nodes';
 import { anchorIndex, applyProposal, currentProposals, dropProposals, outline, putProposal, blockMarkdown, safePreview, type Proposal } from './assist';
 
-const editor = (html: string) => new Editor({ extensions: [StarterKit.configure({ trailingNode: false, undoRedo: false }), SourceSlices], content: html });
+// Destroyed after each test, so no editor's DOM observer fires once jsdom is gone.
+const editors: Editor[] = [];
+const editor = (html: string) => {
+  const e = new Editor({ extensions: [StarterKit.configure({ trailingNode: false, undoRedo: false }), SourceSlices], content: html });
+  editors.push(e);
+  return e;
+};
 const proposal = (e: Editor, index: number, change: Partial<Proposal>): Proposal =>
   ({ id: crypto.randomUUID(), label: 'test', op: 'replace', anchor: e.state.doc.child(index), index, state: 'ready', source: 'block', ...change });
 
-afterEach(() => { dropProposals('block'); dropProposals('chat'); });
+afterEach(() => { dropProposals('block'); dropProposals('chat'); editors.splice(0).forEach((e) => e.destroy()); });
 
 describe('assistant proposals', () => {
   it('numbers the page from 1, one block each, as Markdown', () => {

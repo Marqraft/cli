@@ -1,5 +1,6 @@
 using Rodolfo
 using Net.HTTP.WebSocket, only: [WebSocket, Connection, Message, Text, BinaryMessage]
+using Net.HTTP, only: [Server]
 
 describe "live editing sessions" do
   it "seeds a page from its first editor, relays updates and cursors, and hands on the saver" do

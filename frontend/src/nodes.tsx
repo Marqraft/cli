@@ -49,6 +49,8 @@ type CodeFields = { language: string; filename: string; caption: string };
  */
 function CodeWindow({ fields, update, text, children }: { fields: CodeFields; update: (key: keyof CodeFields, value: string) => void; text: string; children?: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
+  const [filename, setFilename] = useState(fields.filename);
+  React.useEffect(() => setFilename(fields.filename), [fields.filename]);
   const copy = () => void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   const hint = 'Filename';
   return <>
@@ -56,7 +58,7 @@ function CodeWindow({ fields, update, text, children }: { fields: CodeFields; up
     <div className="marq-code-bar" contentEditable={false}>
       <span className="marq-code-dots" aria-hidden="true"><i /><i /><i /></span>
       <input className="marq-code-file marq-inline-field" aria-label="Filename" placeholder={hint} spellCheck={false}
-        size={Math.max(4, (fields.filename || hint).length)} value={fields.filename} onChange={event => update('filename', event.target.value)} />
+        size={Math.max(4, (fields.filename || hint).length)} value={filename} onChange={event => setFilename(event.target.value)} onBlur={() => update('filename', filename)} />
       <select className="marq-code-language marq-inline-field" aria-label="Language" value={fields.language}
         onChange={event => update('language', event.target.value)}>
         {!fields.language && <option value="">plain</option>}

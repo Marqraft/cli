@@ -51,7 +51,7 @@ describe "theme selection" do
     let external = "${FS.Directory.temporary}/marqraft-external-theme-${Marqraft.Store.identifier}/docs-theme"
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
-      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)).ok?)
       assert(FS.File.write(external + "/" + path, source).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-external-site-${Marqraft.Store.identifier}"

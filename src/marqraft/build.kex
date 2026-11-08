@@ -15,13 +15,15 @@ foul run(directory: String) -> Void or! String do
   let outputs = Marqraft.Routes.all(site).try
   let stage = ".marqraft/cache/build-${Marqraft.Store.identifier}"
   let stagePath = Marqraft.Store.safePath(site.root, stage).try
-  return Error("cannot create build staging directory") if !FS.Directory.create(stagePath)
+  return Error("cannot create build staging directory") if FS.Directory.create(stagePath).error?
   firstError(outputs.map { |output| write(site, stage, output) }).try
   let backup = site.root + "/.marqraft/cache/previous-${Marqraft.Store.identifier}"
   let existing = FS.Directory.directory?(destination)
-  return Error("cannot move previous build") if existing && !FS.File.rename(destination, backup)
-  if !FS.File.rename(stagePath, destination)
-    let _ = existing && FS.File.rename(backup, destination)
+  return Error("cannot move previous build") if existing && FS.File.rename(destination, backup).error?
+  if FS.File.rename(stagePath, destination).error?
+    if existing
+      let _ = FS.File.rename(backup, destination)
+    end
     return Error("cannot publish staged build")
   end
   Marqraft.Store.write(site.root, ownership, Digest.sha256(site.root)).try
@@ -52,7 +54,7 @@ foul write(site: Site, stage: String, output: SiteOutput) -> Void or! String do
     return Ok(())
   end
   let target = Marqraft.Store.safePath(site.root, relative).try
-  return Error("cannot create a directory for ${output.dest}") if !FS.Directory.create(FS.Path.dirname(target))
+  return Error("cannot create a directory for ${output.dest}") if FS.Directory.create(FS.Path.dirname(target)).error?
   let copied = FS.File.writeBytes(target, FS.File.readBytes(Marqraft.Store.safePath(site.root, output.source).try).try)
   return Error("cannot copy ${output.label} ${output.dest}") if copied.error?
   return Ok(())

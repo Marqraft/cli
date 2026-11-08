@@ -76,10 +76,10 @@ foul start(directory: String, port: Integer) -> Void or! String do
       allowedHost?(env, port) then Marqraft.Live.serveEditor(hub, socket) else socket.close
     end
     get "/__marqraft/editor.js" do |_|
-      Response.Text { body: Kex.embed("../../assets/editor.js"), headers: noCache.add("Content-Type", "text/javascript; charset=utf-8").try }
+      Response.Text { body: Kex.embed("../../assets/editor.js"), headers: noCacheWith("text/javascript; charset=utf-8") }
     end
     get "/__marqraft/editor.css" do |_|
-      Response.Text { body: Kex.embed("../../assets/marqraft-author.css"), headers: noCache.add("Content-Type", "text/css; charset=utf-8").try }
+      Response.Text { body: Kex.embed("../../assets/marqraft-author.css"), headers: noCacheWith("text/css; charset=utf-8") }
     end
     get "/" do |env|
       allowedHost?(env, port) then Marqraft.Server.serve(root, "", token) else textReply(403, "forbidden host")
@@ -97,7 +97,14 @@ foul start(directory: String, port: Integer) -> Void or! String do
   return Ok(())
 end
 
-let noCache -> Net.HTTP.Headers = Net.HTTP.Headers.empty.add("Cache-Control", "no-store").try.add("X-Content-Type-Options", "nosniff").try
+let noCacheFields -> [(String, String)] = [("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")]
+
+let noCache -> Net.HTTP.Headers = Net.HTTP.Headers.from(noCacheFields).try
+
+# The no-cache headers plus a content type, for the embedded editor assets.
+let noCacheWith(contentType: String) -> Net.HTTP.Headers do
+  Net.HTTP.Headers.from(noCacheFields + [("Content-Type", contentType)]).try
+end
 
 let allowedHost?(env: Rodolfo.Context, port: Integer) -> Bool do
   let host = env.request.headers.get("Host").or("")

@@ -10,7 +10,7 @@ describe "collections" do
       else
         source
       end
-      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)).ok?)
       assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-collections-${Marqraft.Store.identifier}"
@@ -46,7 +46,7 @@ describe "collections" do
       else
         source
       end
-      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)).ok?)
       assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-home-${Marqraft.Store.identifier}"
@@ -84,7 +84,7 @@ describe "collections" do
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       let text = path == "page.html.ket" then source.replace("<marqraft-content source=\"body\"></marqraft-content>", "<p class=\"lede\"><marqraft-content source=\"description\"></marqraft-content></p><marqraft-content source=\"body\"></marqraft-content>") else source
-      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)).ok?)
       assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-description-${Marqraft.Store.identifier}"
@@ -102,7 +102,7 @@ describe "collections" do
     Marqraft.Builtin.files("basic").entries.each do |entry|
       let (path, source) = entry
       let text = path == "page.html.ket" then source.replace("<marqraft-content source=\"title\"></marqraft-content>", "<p class=\"version\"><%= context[\"version\"].or(\"\") %></p><marqraft-content source=\"title\"></marqraft-content>") else source
-      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)))
+      assert(FS.Directory.create(FS.Path.dirname(external + "/" + path)).ok?)
       assert(FS.File.write(external + "/" + path, text).ok?)
     end
     let root = "${FS.Directory.temporary}/marqraft-version-${Marqraft.Store.identifier}"

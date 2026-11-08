@@ -3,7 +3,7 @@ using Marqraft.Project
 describe "filesystem persistence" do
   it "rejects traversal and symlink escapes" do
     let root = "${FS.Directory.temporary}/marqraft-path-${Marqraft.Store.identifier}"
-    assert(FS.Directory.create(root))
+    assert(FS.Directory.create(root).ok?)
     assert(!Marqraft.Store.safePath(root, "../outside").ok?)
     assert(!Marqraft.Store.safePath(root, "/absolute").ok?)
     assert(Marqraft.Store.safePath(root, "file0.md").ok?)

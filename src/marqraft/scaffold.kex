@@ -7,7 +7,7 @@ foul create(directory: String, theme: String) -> Void or! String do
   return Error("theme must be one of ${Marqraft.Builtin.names.join(", ")}, or a directory with marqraft-theme.jsonc") if !builtIn && !FS.File.file?(reference + "/marqraft-theme.jsonc")
   let manifestSource = builtIn then Marqraft.Builtin.files(theme).get("marqraft-theme.jsonc").or("{}") else FS.File.read(reference + "/marqraft-theme.jsonc").try
   return Error("destination already exists") if FS.File.file?(directory) || FS.Directory.directory?(directory)
-  return Error("cannot create destination") if !FS.Directory.create(directory)
+  return Error("cannot create destination") if FS.Directory.create(directory).error?
   let root = Marqraft.Store.realPath(directory).try
   let manifest = Marqraft.Data.object(Marqraft.Data.decode(manifestSource).try).try
   let fields = Marqraft.Data.list(manifest.get("settings").or([])).try

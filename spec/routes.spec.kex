@@ -22,7 +22,7 @@ describe "routes" do
     Marqraft.Store.write(root, "public/tutorial/index.html", "shadow").try
     let clash = Marqraft.Routes.all(Marqraft.Project.load(root).try)
     assert(!clash.ok?)
-    assert(FS.File.delete(root + "/public/tutorial/index.html"))
+    assert(FS.File.delete(root + "/public/tutorial/index.html").ok?)
     Marqraft.Store.write(root, "public/_theme/icon.png", "png").try
     assert(!Marqraft.Routes.all(Marqraft.Project.load(root).try).ok?)
   end

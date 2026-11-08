@@ -234,10 +234,10 @@ foul upload(root: String, data: {String: Any}) -> {String: Any} or! String do
   let path = "public/${Marqraft.Project.uploadDirectory(site)}/${Marqraft.Store.identifier}${extension}"
   let target = Marqraft.Store.safePath(root, path).try
   return Error("asset collision") if FS.File.file?(target)
-  return Error("cannot create the upload folder") if !FS.Directory.create(FS.Path.dirname(target))
+  return Error("cannot create the upload folder") if FS.Directory.create(FS.Path.dirname(target)).error?
   let temporary = target + ".marq-upload"
   return Error("cannot persist upload") if FS.File.writeBytes(temporary, bytes).error?
-  if !FS.File.rename(temporary, target)
+  if FS.File.rename(temporary, target).error?
     let _ = FS.File.delete(temporary)
     return Error("cannot finalize upload")
   end

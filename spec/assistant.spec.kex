@@ -80,7 +80,7 @@ foul fake() -> String = "${FS.Directory.current}/scripts/fake-assistant.sh"
 
 foul setUp(name: String) -> (String, String) do
   let dir = "${FS.Directory.temporary}/marqraft-assistant-${name}-${Marqraft.Store.identifier}"
-  assert(FS.Directory.create(dir))
+  assert(FS.Directory.create(dir).ok?)
   ENV.set("FAKE_ASSISTANT", dir)
   ENV.set("MARQ_ASSISTANT_CONFIG", dir + "/none.json")
   let _ = ENV.unset("MARQ_ASSISTANT_PROVIDER")

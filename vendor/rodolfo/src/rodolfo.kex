@@ -693,6 +693,7 @@ private do
           [compileFlat(Flat { method: method, path: joinedPath(prefix, path), plugs: stack, handler: handler })]
         WsDefinition { path, handler } => [compileWs(WsDefinition { path: joinedPath(prefix, path), handler: handler })]
         Scope { prefix: childPrefix, children } => declaredRoutes(children, joinedPath(prefix, childPrefix), stack)
+        PlugEntry { wrapper } => []
       end
     }
   end
@@ -771,23 +772,40 @@ private do
   foul respond(Rodolfo.Response.JSON { status, body, headers }, route: String) -> Net.HTTP.Response<Binary> = textual(status, body, headers, "application/json")
   foul respond(Rodolfo.Response.Text { status, body, headers }, route: String) -> Net.HTTP.Response<Binary> = textual(status, body, headers, "text/plain; charset=utf-8")
   foul respond(Rodolfo.Response.HTML { status, body, headers }, route: String) -> Net.HTTP.Response<Binary> = textual(status, body, headers, "text/html; charset=utf-8")
-  foul respond(Rodolfo.Response.Raw { status, body, headers, contentType }, route: String) -> Net.HTTP.Response<Binary> = Net.HTTP.Response.binary(status, body, typed(headers, contentType))
+  foul respond(Rodolfo.Response.Raw { status, body, headers, contentType }, route: String) -> Net.HTTP.Response<Binary> do
+    Net.HTTP.Response.binary(status, body, typed(headers, contentType).try)
+  rescue |reason|
+    refused(route, reason)
+  end
   foul respond(Rodolfo.Response.Empty { status, headers }, route: String) -> Net.HTTP.Response<Binary> = Net.HTTP.Response.binary(status, Binary.empty, headers)
-  foul respond(Rodolfo.Response.Redirect { status, location, headers }, route: String) -> Net.HTTP.Response<Binary> = Net.HTTP.Response.binary(status, Binary.empty, appended(headers, "Location", location).try)
+  foul respond(Rodolfo.Response.Redirect { status, location, headers }, route: String) -> Net.HTTP.Response<Binary> do
+    Net.HTTP.Response.binary(status, Binary.empty, appended(headers, "Location", location).try)
+  rescue |reason|
+    refused(route, reason)
+  end
   foul respond(other: Any, route: String) -> Net.HTTP.Response<Binary> do
     IO.printError("Rodolfo: ${route} returned a value that is not a Reply: ${other}")
     Net.HTTP.Response.text(500, "Internal Server Error")
   end
 
   foul textual(status: Integer, body: String, headers: Headers, contentType: String) -> Net.HTTP.Response<Binary> do
-    Net.HTTP.Response.binary(status, body.to(Binary).try, typed(headers, contentType))
+    Net.HTTP.Response.binary(status, body.to(Binary).try, typed(headers, contentType).try)
+  rescue |reason|
+    refused("a reply", reason)
+  end
+
+  # A reply that cannot be put on the wire (a header carrying a line break,
+  # say) is logged and answered as a 500, like any other application bug.
+  foul refused(route: String, reason: Any) -> Net.HTTP.Response<Binary> do
+    IO.printError("Rodolfo: ${route} gave a reply that cannot be sent: ${reason}")
+    Net.HTTP.Response.text(500, "Internal Server Error")
   end
 
   # A reply's own `Content-Type` wins; the record's kind only fills the gap.
-  foul typed(headers: Headers, contentType: String) -> Headers do
+  foul typed(headers: Headers, contentType: String) -> Result<Headers, NetError> do
     match headers.get("Content-Type") do
-      Just(_) => headers
-      None => appended(headers, "Content-Type", contentType).try
+      Just(_) => Ok(headers)
+      None => appended(headers, "Content-Type", contentType)
     end
   end
 

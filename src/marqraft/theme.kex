@@ -118,7 +118,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
     "searchIndex": Marqraft.Search.indexPath(site),
     "pager": pager(site, page, authoring?, site.navigation),
     "pager:collection": pager(site, page, authoring?, collectionNodes),
-    "css": stylesheet(site, settings), "authoring": authoring?,
+    "css": stylesheet(site, settings).try, "authoring": authoring?,
     "logo": logo(settings), "favicon": faviconHtml(site), "assetsUrl": "/_theme/",
     "mounts": site.mounts.map { |mount| Marqraft.Mounts.describe(mount) },
     "page": Marqraft.Data.object(Marqraft.Data.decode(page.data).or({})).or({})
@@ -224,11 +224,11 @@ let templateSource(path: String, digest: String) -> String do
 end
 # Theme CSS reads settings as --marq-<name> custom properties; values are
 # validated against the theme's settings schema before they reach CSS.
-foul stylesheet(site: Site, settings: {String: Any}) -> String do
+foul stylesheet(site: Site, settings: {String: Any}) -> String or! String do
   let css = FS.File.read(Marqraft.Store.safePath(site.root, site.themeDir + "/style.css").try).try
   let fields = Marqraft.Data.list(site.theme.get("settings").or([])).or([])
   let variables = fields.map { |field| cssVariable(field, settings) }.join("")
-  return css + "\n:root{${variables}}"
+  return Ok(css + "\n:root{${variables}}")
 end
 
 let cssVariable(field: Any, settings: {String: Any}) -> String do
@@ -284,11 +284,17 @@ foul versionsHtml(site: Site, page: Page, version: String) -> String do
   return "" if version.empty?
   let plain = "<span class=\"marq-version\">${Marqraft.Content.escape(version)}</span>"
   let mount = site.mounts.find { |item| page.generated? && !item.dir.empty? && pageFileOf(page).startsWith?(item.dir + "/") }
-  return plain if !mount.set? || mount.try.versions.count < 2
-  let current = mount.try.versions.find { |item| item.name == version }
-  return plain if !current.set?
-  let rest = pathOf(page).drop(current.try.url.count)
-  let options = mount.try.versions.map do |item|
+  let versions = match mount do
+    Just(found) => found.versions
+    None => return plain
+  end
+  return plain if versions.count < 2
+  let current = match versions.find { |item| item.name == version } do
+    Just(found) => found
+    None => return plain
+  end
+  let rest = pathOf(page).drop(current.url.count)
+  let options = versions.map do |item|
     let same = item.url + rest
     let target = site.pages.any? { |other| pathOf(other) == same } then same else item.url
     let selected = item.name == version then " selected" else ""
@@ -387,8 +393,10 @@ end
 # Reading order follows the navigation tree, depth first; published output
 # skips drafts so the pager never links to a missing page.
 foul sequence(site: Site, nodes: [NavNode], authoring?: Bool) -> [Page] do
-  return [] if nodes.empty?
-  let node = nodes.first.try
+  let node = match nodes.first do
+    Just(first) => first
+    None => return []
+  end
   let rest = sequence(site, node.children, authoring?) + sequence(site, nodes.drop(1), authoring?)
   match Marqraft.Project.page(site, node.id) do
     Ok(page) => (page.draft? && !authoring?) then rest else [page] + rest
@@ -397,8 +405,10 @@ foul sequence(site: Site, nodes: [NavNode], authoring?: Bool) -> [Page] do
 end
 
 let neighbours(order: [Page], id: String, previous: Page?) -> (Page?, Page?) do
-  return (None, None) if order.empty?
-  let head = order.first.try
+  let head = match order.first do
+    Just(first) => first
+    None => return (None, None)
+  end
   return (previous, order.drop(1).first) if head.id == id
   return neighbours(order.drop(1), id, Just(head))
 end
@@ -426,8 +436,17 @@ foul template(root: String, relative: String, context: {String: Any}) -> String 
     Ok(value) => value
     Error(problem) => return Error("theme render failed: ${problem}")
   end
-  return Error("theme render failed: ${rendered}") if Type.of(rendered).name != "String"
-  return Ok("${rendered}")
+  # A template whose `.try` can fail gives its page wrapped: `Just` or `Ok`
+  # when every value was there, `None` or an `Error` when one was not.
+  let html = match rendered do
+    Just(value) => value
+    None => return Error("theme render failed: a value the template reads with .try is missing")
+    Ok(value) => value
+    Error(problem) => return Error("theme render failed: ${problem}")
+    value => value
+  end
+  return Error("theme render failed: ${html}") if Type.of(html).name != "String"
+  return Ok("${html}")
 end
 
 # Compiles the template on first use (the digest keys the cache, so an

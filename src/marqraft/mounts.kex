@@ -172,14 +172,16 @@ end
 # own, so identity, title, and URL derive from the file.
 foul generatedPages(root: String, mounts: [Mount], filePages: [Page]) -> [Page] or! String do
   let groups = readPages(root, mounts.filter { |mount| renderedDir?(mount) }, []).try
-  let pages = flattenPages(groups.map { |group| groupPages(linkPages(group).try) }, []).try
+  let pages = flattenPages(groups.map { |group| linkPages(group).map { |linked| groupPages(linked) } }, []).try
   checkUniquePages(filePages + pages, [], []).try
   return Ok(pages)
 end
 
-foul flattenPages(groups: [[Page]], pages: [Page]) -> [Page] or! String do
-  return Ok(pages) if groups.empty?
-  return flattenPages(groups.drop(1), pages + groups.first.try)
+foul flattenPages(groups: [[Page] or! String], pages: [Page]) -> [Page] or! String do
+  match groups.first do
+    None => Ok(pages)
+    Just(group) => flattenPages(groups.drop(1), pages + group.try)
+  end
 end
 
 # One mount's pages: the modules plus a synthetic index per version and for

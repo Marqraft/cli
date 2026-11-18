@@ -22,7 +22,7 @@ foul start(directory: String, port: Integer) -> Void or! String do
     var everything = Marqraft.Live.fingerprint(root, true)
     var tick = 0
     loop do
-      Task.sleep(500.milliseconds)
+      Task.sleep(500.millisecond)
       tick = tick + 1
       let nowAuthored = Marqraft.Live.fingerprint(root, false)
       let nowEverything = tick % 6 == 0 then Marqraft.Live.fingerprint(root, true) else everything
@@ -51,25 +51,7 @@ foul start(directory: String, port: Integer) -> Void or! String do
       end
     end
     post "/__marqraft/:action" do |env|
-      if !authorized?(env, port, token)
-        textReply(403, "invalid authoring session or origin")
-      else
-        let body = env.request.body.to(String).try
-        if body.count > 12000000
-          textReply(413, "request too large")
-        elif env.param("action").or("") == "assist"
-          let answer = Marqraft.API.assist(root, body)
-          jsonReply(answer.status, answer.body)
-        else
-          let result = workspace.invoke(env.param("action").or(""), body).try
-          # A successful action changed files: the next request, and every
-          # open editor, sees the site as it is now.
-          if result.status == 200 && Marqraft.Live.refresh(root).ok?
-            hub.broadcast(Marqraft.Live.changed)
-          end
-          jsonReply(result.status, result.body)
-        end
-      end
+      authorized?(env, port, token) then act(env, root, workspace, hub) else textReply(403, "invalid authoring session or origin")
     end
     # Open editors hear here when the site changes, instead of polling.
     ws "/__marqraft/live" do |env, socket|
@@ -97,13 +79,41 @@ foul start(directory: String, port: Integer) -> Void or! String do
   return Ok(())
 end
 
+# One authoring action. A body that is not text, or a workspace that cannot
+# be reached, is answered as a 500.
+foul act(env: Rodolfo.Context, root: String, workspace: Server<Workspace>, hub: Server<Marqraft.Live.Hub>) -> Rodolfo.Response.Text | Rodolfo.Response.JSON do
+  let body = env.request.body.to(String).try
+  return textReply(413, "request too large") if body.count > 12000000
+  if env.param("action").or("") == "assist"
+    let answer = Marqraft.API.assist(root, body)
+    return jsonReply(answer.status, answer.body)
+  end
+  let result = workspace.invoke(env.param("action").or(""), body).try
+  # A successful action changed files: the next request, and every
+  # open editor, sees the site as it is now.
+  if result.status == 200 && Marqraft.Live.refresh(root).ok?
+    hub.broadcast(Marqraft.Live.changed)
+  end
+  return jsonReply(result.status, result.body)
+rescue |error|
+  return textReply(500, "${error}")
+end
+
 let noCacheFields -> [(String, String)] = [("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")]
 
-let noCache -> Net.HTTP.Headers = Net.HTTP.Headers.from(noCacheFields).try
+# The fields are fixed and valid, so building them cannot fail; the rescue
+# only satisfies the checker.
+let noCache -> Net.HTTP.Headers do
+  Net.HTTP.Headers.from(noCacheFields).try
+rescue |_reason|
+  Net.HTTP.Headers.empty
+end
 
 # The no-cache headers plus a content type, for the embedded editor assets.
 let noCacheWith(contentType: String) -> Net.HTTP.Headers do
   Net.HTTP.Headers.from(noCacheFields + [("Content-Type", contentType)]).try
+rescue |_reason|
+  noCache
 end
 
 let allowedHost?(env: Rodolfo.Context, port: Integer) -> Bool do
@@ -114,13 +124,15 @@ end
 let authorized?(env: Rodolfo.Context, port: Integer, token: String) -> Bool do
   return false if !allowedHost?(env, port)
   let origin = env.request.headers.get("Origin").or("")
-  let parsed = URI.URL.parse(origin)
-  return false if !parsed.ok?
-  return false if !["http://localhost:${port}", "http://127.0.0.1:${port}", "http://[::1]:${port}"].contains?(parsed.try.string)
+  let allowedOrigin = match URI.URL.parse(origin) do
+    Ok(url) => ["http://localhost:${port}", "http://127.0.0.1:${port}", "http://[::1]:${port}"].contains?(url.string)
+    Error(_) => false
+  end
+  return false if !allowedOrigin
   return env.request.headers.get("X-Marqraft-Session").or("") == token
 end
 
-foul jsonResult(result: {String: Any} or! String) -> Rodolfo.Response.Reply do
+foul jsonResult(result: {String: Any} or! String) do
   match result do
     Ok(data) => Response.JSON { body: Marqraft.Data.encode(data), headers: noCache }
     Error(message) => do
@@ -133,7 +145,7 @@ end
 # One request, answered from the site as it is on disk now, so every edit
 # shows on the next reload: a page (with the authoring UI), the search
 # index, or a file.
-foul serve(root: String, relative: String, token: String) -> Rodolfo.Response.Reply do
+foul serve(root: String, relative: String, token: String) do
   let site = Marqraft.Live.site(root).try
   match Marqraft.Routes.find(site, relative) do
     None => return textReply(404, "Not found")
@@ -149,13 +161,15 @@ rescue |error|
 end
 
 # Generated pages render view-only: no editing bindings ever attach to them.
-foul renderPage(site: Site, page: Page, token: String) -> Rodolfo.Response.Reply do
+foul renderPage(site: Site, page: Page, token: String) do
   let html = Marqraft.Theme.render(site, page, !page.generated?).try
   let generated = page.generated? then "<meta name=\"marq-generated\" content=\"${Marqraft.Content.escape(page.title)}\">" else ""
   let author = "<meta name=\"marq-token\" content=\"${token}\"><meta name=\"marq-page\" content=\"${Marqraft.Content.escape(page.id)}\">${generated}<link rel=\"stylesheet\" href=\"/__marqraft/editor.css\"><div id=\"marq-chrome\"></div><script src=\"/__marqraft/editor.js\" defer></script>"
   return Response.HTML { body: html.replace("</body>", author + "</body>"), headers: noCache }
+rescue |error|
+  return textReply(500, "${error}")
 end
 
-let textReply(status: Integer, body: String) -> Rodolfo.Response.Reply = Response.Text { status, body, headers: noCache }
+let textReply(status: Integer, body: String) -> Rodolfo.Response.Text = Response.Text { status, body, headers: noCache }
 
-let jsonReply(status: Integer, body: String) -> Rodolfo.Response.Reply = Response.JSON { status, body, headers: noCache }
+let jsonReply(status: Integer, body: String) -> Rodolfo.Response.JSON = Response.JSON { status, body, headers: noCache }

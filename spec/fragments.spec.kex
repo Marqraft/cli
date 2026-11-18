@@ -3,7 +3,7 @@ using Marqraft.Project
 # A fragments mount: pages a producer rendered itself (Tey docgen's
 # `--format fragments`), one version directory with a landing page and a
 # member, and a page tree.
-foul fragmentsSite() -> String do
+foul fragmentsSite() -> String or! String do
   let root = "${FS.Directory.temporary}/marqraft-fragments-${Marqraft.Store.identifier}"
   Marqraft.Scaffold.create(root, "basic").try
   let v = "reference/api/1.0"
@@ -16,12 +16,12 @@ foul fragmentsSite() -> String do
   let config = Marqraft.Data.object(Marqraft.Data.read(root + "/marqraft.jsonc").try).try
   let mounts = Marqraft.Data.decode("[{ \"path\": \"/api/\", \"dir\": \"reference/api\", \"pages\": true, \"format\": \"fragments\", \"title\": \"API\" }]").try
   Marqraft.Store.write(root, "marqraft.jsonc", Marqraft.Data.pretty(config.put("mounts", mounts))).try
-  return root
+  return Ok(root)
 end
 
 describe "fragments mounts" do
   it "loads each sidecar as a read-only page with the producer's HTML and data" do
-    let root = fragmentsSite()
+    let root = fragmentsSite().try
     let site = Marqraft.Project.load(root).try
     let list = site.pages.find { |page| page.path == "/api/1.0/list/" }.try
     assert(list.generated?)
@@ -33,7 +33,7 @@ describe "fragments mounts" do
   end
 
   it "renders the body as given, never through Markdown, and passes the data to the template" do
-    let root = fragmentsSite()
+    let root = fragmentsSite().try
     let site = Marqraft.Project.load(root).try
     let list = site.pages.find { |page| page.path == "/api/1.0/list/" }.try
     let html = Marqraft.Theme.render(site, list, false).try
@@ -41,7 +41,7 @@ describe "fragments mounts" do
   end
 
   it "uses the producer's version page instead of a synthetic one, and its page tree" do
-    let root = fragmentsSite()
+    let root = fragmentsSite().try
     let site = Marqraft.Project.load(root).try
     let version = site.pages.filter { |page| page.path == "/api/1.0/" }
     assert(version.count == 1)
@@ -55,7 +55,7 @@ describe "fragments mounts" do
   end
 
   it "publishes the Markdown twins but not the sidecars, bodies or page tree" do
-    let root = fragmentsSite()
+    let root = fragmentsSite().try
     Marqraft.Build.run(root).try
     assert(FS.File.file?(root + "/dist/api/1.0/list/index.html"))
     assert(FS.File.read(root + "/dist/api/1.0/list.md").try == "# List\n")
@@ -65,10 +65,10 @@ describe "fragments mounts" do
   end
 
   it "rejects a sidecar whose page lies outside the mount, and an unknown format" do
-    let root = fragmentsSite()
+    let root = fragmentsSite().try
     Marqraft.Store.write(root, "reference/api/1.0/stray.page.json", "{ \"title\": \"Stray\", \"path\": \"/elsewhere/\", \"body\": \"list.html\" }").try
     assert(!Marqraft.Project.load(root).ok?)
-    let other = fragmentsSite()
+    let other = fragmentsSite().try
     let config = Marqraft.Data.object(Marqraft.Data.read(other + "/marqraft.jsonc").try).try
     let mounts = Marqraft.Data.decode("[{ \"path\": \"/api/\", \"dir\": \"reference/api\", \"pages\": true, \"format\": \"html\" }]").try
     Marqraft.Store.write(other, "marqraft.jsonc", Marqraft.Data.pretty(config.put("mounts", mounts))).try

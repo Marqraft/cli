@@ -80,7 +80,7 @@ foul copyCollection(root: String, from: String, to: String, title: String, unlis
   let node = findNode(stripGenerated(site.navigation, generatedIds(site)), sourceId)
   return Error("${from} is not in the navigation") if !node.set?
   let ids = subtreeIds(node.try)
-  let members = ids.map { |id| page(site, id).try }
+  let members = pagesOf(site, ids).try
   let outside = members.map { |item| Marqraft.Theme.pathOf(item) }.reject { |path| path.startsWith?(from) }
   return Error("${outside.first.or("")} is not under ${from}; only a subtree under one path can be copied") if !outside.empty?
   let renamed = ids.map { |id| (id, Marqraft.Store.identifier) }
@@ -104,11 +104,21 @@ foul copyCollection(root: String, from: String, to: String, title: String, unlis
   return page(copied, renamedId(renamed, sourceId))
 end
 
+# Every page by id, in order; the first id without a page is the error.
+let pagesOf(site: Site, ids: [String]) -> [Page] or! String do
+  match ids.first do
+    None => Ok([])
+    Just(id) => Ok([page(site, id).try] + pagesOf(site, ids.drop(1)).try)
+  end
+end
+
 # The top level with the copy right after its original, which `unlist`
 # hides from the collections menu.
 let withCopy(nodes: [NavNode], sourceId: String, copy: NavNode, unlist: Bool) -> [NavNode] do
-  return [] if nodes.empty?
-  let node = nodes.first.try
+  let node = match nodes.first do
+    Just(first) => first
+    None => return []
+  end
   let rest = withCopy(nodes.drop(1), sourceId, copy, unlist)
   return node.id == sourceId then [NavNode { ...node, listed?: !unlist && node.listed? }, copy] + rest else [node] + rest
 end

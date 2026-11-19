@@ -253,7 +253,7 @@ end
 foul available?(provider: Provider) -> Bool do
   let known: Process.Shared<Bool> = Process.Shared.named("marqraft_assistant:${provider.command}")
   let answer: Bool? = known.get
-  return answer.try if answer.set?
+  return answer.or(false) if answer.set?
   let found = Process.run(provider.command, ["--version"]).ok?
   known.put(found)
   return found

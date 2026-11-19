@@ -155,8 +155,11 @@ end
 
 foul renderElement(node: Element, authoring?: Bool, root: String = "", definitions: [Any] = []) -> String do
   let definition = definitions.find { |item| Marqraft.Data.text(item, "element", "") == node.name && Marqraft.Data.text(item, "template", "") != "" }
-  if definition.set? && root != ""
-    return Marqraft.Blocks.render(root, node, definition.try, definitions, authoring?).or(fallback(node.source, authoring?))
+  if root != ""
+    match definition do
+      Just(found) => return Marqraft.Blocks.render(root, node, found, definitions, authoring?).or(fallback(node.source, authoring?))
+      None => ()
+    end
   end
   let attrs = node.attributes
   if node.name == "marqraft-code"

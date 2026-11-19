@@ -70,6 +70,8 @@ foul text(socket: Connection) -> String do
     Text(value) => value
     _ => ""
   end
+rescue |_reason|
+  ""
 end
 
 foul bytes(socket: Connection) -> String do
@@ -77,4 +79,6 @@ foul bytes(socket: Connection) -> String do
     BinaryMessage(value) => value.hex
     _ => ""
   end
+rescue |_reason|
+  ""
 end

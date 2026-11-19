@@ -1,8 +1,6 @@
 module Marqraft.Document
 
 using Digest
-using JSON
-using URI
 
 record Page do
   file : String
@@ -82,9 +80,11 @@ let slug?(text: String) -> Bool do
 end
 
 let urlPath?(path: String) -> Bool do
-  let reference = URI.parse(path)
-  return false if !reference.ok?
-  return false if reference.try.scheme.set? || reference.try.string != path
+  let reference = match URI.parse(path) do
+    Ok(url) => url
+    Error(_) => return false
+  end
+  return false if reference.scheme.set? || reference.string != path
   return true if path == "/"
   return false if !path.startsWith?("/") || !path.endsWith?("/")
   let core = path.drop(1).take(path.count - 2)

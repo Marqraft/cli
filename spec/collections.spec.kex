@@ -115,11 +115,11 @@ describe "collections" do
     Marqraft.Pages.save(root, pinned.id, pinned.revision, pinned.source.replace("draft: true", "draft: true\nversion: \"0.3\"")).try
     let loaded = Marqraft.Project.load(root).try
     let render = { |id| Marqraft.Theme.render(loaded, Marqraft.Project.page(loaded, id).try, true).try }
-    assert(render(tutorial.id).contains?("<p class=\"version\">0.4</p>"))
-    assert(render(chapter.id).contains?("<p class=\"version\">0.4</p>"))
-    assert(render(pinned.id).contains?("<p class=\"version\">0.3</p>"))
+    assert(render(tutorial.id).try.contains?("<p class=\"version\">0.4</p>"))
+    assert(render(chapter.id).try.contains?("<p class=\"version\">0.4</p>"))
+    assert(render(pinned.id).try.contains?("<p class=\"version\">0.3</p>"))
     let home = loaded.pages.find { |page| page.path == "/" }.try
-    assert(render(home.id).contains?("<p class=\"version\"></p>"))
+    assert(render(home.id).try.contains?("<p class=\"version\"></p>"))
     assert(!Marqraft.Document.parse("---\nid: a\ntitle: A\npath: /\ndraft: false\nversion: \"a\\nb\"\n---\n", "a.md").ok?)
   end
   it "publishes and unpublishes a page from its draft line only" do

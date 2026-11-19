@@ -19,7 +19,7 @@ end
 
 let relative?(path: String) -> Bool do
   return false if path.empty? || path.startsWith?("/") || path.contains?("\\")
-  return false if path.contains?(String.fromCodepoint(0).try) || path.contains?("\n") || path.contains?("\r")
+  return false if String.fromCodepoint(0).map { |nul| path.contains?(nul) }.or(true) || path.contains?("\n") || path.contains?("\r")
   return !path.split("/").any? { |part| part == ".." || part == "." || part == "" }
 end
 

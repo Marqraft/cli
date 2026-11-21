@@ -213,6 +213,23 @@ end
 
 foul compiler -> String = ENV.get("TEY_KEX").or("kex")
 
+# `kex --version` of the compiler templates are compiled with, asked once per
+# run. It is part of a template's cache key: a beam compiled by one Kex can
+# call runtime functions another does not have.
+foul compilerVersion -> String do
+  let cached: Process.Shared<String> = Process.Shared.named("marqraft_compiler_version")
+  match cached.get do
+    Just(known) => return known
+    None => ()
+  end
+  let version = match Process.run(compiler, ["--version"], 10000) do
+    Ok(ran) => ran.stdout.trim
+    Error(_) => ""
+  end
+  cached.put(version)
+  return version
+end
+
 # A template compiles once into a module of its own (named by its digest)
 # that marq loads into its own VM, so a render is a function call. Running
 # each render as a `kex --run` process spent ~140 ms starting a VM.
@@ -429,12 +446,12 @@ end
 
 foul template(root: String, relative: String, context: {String: Any}) -> String or! String do
   let source = Marqraft.Store.safePath(root, relative).try
-  let digest = Digest.sha256(FS.File.read(source).try).take(24)
+  let digest = Digest.sha256(compilerVersion() + "\n" + FS.File.read(source).try).take(24)
   let renderer = loadTemplate(root, source, digest).try
   # An exception in the template comes back as an Error, not a crash.
   let rendered = match renderer.call(:render, [context]) do
     Ok(value) => value
-    Error(problem) => return Error("theme render failed: ${problem}")
+    Error(problem) => return Error("theme render failed: ${renderProblem(problem)}")
   end
   # A template whose `.try` can fail gives its page wrapped: `Just` or `Ok`
   # when every value was there, `None` or an `Error` when one was not.
@@ -451,6 +468,17 @@ end
 
 # Compiles the template on first use (the digest keys the cache, so an
 # edited template is a new module) and loads it into this VM, once.
+# What went wrong in a render, in words. `undef` is a call to a function the
+# running marq does not have: the template was compiled by a newer Kex than
+# the one marq was built with.
+foul renderProblem(problem: Any) -> String do
+  let text = "${problem}"
+  return text if !text.contains?("undef")
+  let version = compilerVersion()
+  let which = version.empty? then compiler else "${compiler} (${version})"
+  return "${text}: the template was compiled by ${which}, which calls functions this marq was not built with. Rebuild marq with that Kex (tey build), or point TEY_KEX at the kex marq was built with."
+end
+
 foul loadTemplate(root: String, source: String, digest: String) -> Kex.LoadedModule or! String do
   let cached: Process.Shared<Kex.LoadedModule> = Process.Shared.named("marqraft_template:${digest}")
   let loaded: Kex.LoadedModule? = cached.get

@@ -101,7 +101,7 @@ foul render(site: Site, page: Page, authoring?: Bool) -> String or! String do
   end
   let version = pageVersion(page).empty? then collectionVersion else pageVersion(page)
   let collections = collectionsHtml(site, page.id, authoring?)
-  let members = navigation(site, versionMembers(site, collectionNodes.flatMap { |node| node.children }, version), authoring?, page.id)
+  let members = navigation(site, versionMembers(site, collectionNodes.into { |node| node.children }, version), authoring?, page.id)
   let menus = menuContext(site, page, Marqraft.Menus.menuIds(site), authoring?, Marqraft.Data.object(Marqraft.Data.decode("{}").try).try)
   let base = {
     "title": page.title, "description": page.description, "path": page.path,

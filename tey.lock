@@ -5,7 +5,7 @@
   "packages": {
     "markdown": {"version": "0.1.6", "source": "git", "git": "https://github.com/kexhq/markdown", "resolved": "refs/tags/v0.1.6", "commit": "23d051e3809c31c485755e7df25029faf1441caf", "subdir": ".", "path": "", "sha256": "dc357afc6b81460cd1cb73728bfbdbed94b7db4da4b5a95213869a39f0aef3b1", "groups": [], "dependencies": [], "plugins": {}, "workspace": false},
     "marqraft-cli": {"version": "0.1.0", "source": "workspace", "git": "", "resolved": "", "commit": "", "subdir": "", "path": ".", "sha256": "", "groups": [], "dependencies": ["rodolfo", "markdown"], "plugins": {}, "workspace": true},
-    "rodolfo": {"version": "0.2.0", "source": "path", "git": "", "resolved": "", "commit": "", "subdir": "", "path": "vendor/rodolfo", "sha256": "74275a7b487a0213fbeb0888671d33f79fd4616568134fff6e331fef0eba458d", "groups": [], "dependencies": [], "plugins": {}, "workspace": false}
+    "rodolfo": {"version": "0.2.0", "source": "path", "git": "", "resolved": "", "commit": "", "subdir": "", "path": "vendor/rodolfo", "sha256": "235f9b6264a5ddc3eccadb46ab352851a30579e9b70e3fc2e4dc0ef0e1e28f40", "groups": [], "dependencies": [], "plugins": {}, "workspace": false}
   },
   "plugins": {"approvals": {}}
 }

@@ -2,33 +2,41 @@ module Marqraft.Data
 
 using JSON
 
+# A decoded value is an `Any` until a type pattern narrows it.
 let object(value: Any) -> {String: Any} or! String do
-  return Error("expected an object") if Type.of(value).name != "Map"
-  return Ok(value)
+  match value do
+    fields: {String: Any} => Ok(fields)
+    _ => Error("expected an object")
+  end
 end
 
 let text(value: Any, key: String, fallback: String) -> String do
   let fields = object(value).or({})
-  let item = fields.get(key).or(fallback)
-  return "${item}" if Type.of(item).name == "String"
-  return fallback
+  match fields.get(key).or(fallback) do
+    item: String => item
+    _ => fallback
+  end
 end
 
 let flag(value: Any, key: String, fallback: Bool) -> Bool do
-  let item = object(value).or({}).get(key).or(fallback)
-  return item if Type.of(item).name == "Bool"
-  return fallback
+  match object(value).or({}).get(key).or(fallback) do
+    item: Bool => item
+    _ => fallback
+  end
 end
 
 let integer(value: Any, key: String, fallback: Integer) -> Integer do
-  let item = object(value).or({}).get(key).or(fallback)
-  return item if Type.of(item).name == "Integer"
-  return fallback
+  match object(value).or({}).get(key).or(fallback) do
+    item: Integer => item
+    _ => fallback
+  end
 end
 
 let list(value: Any) -> [Any] or! String do
-  return Error("expected an array") if Type.of(value).name != "List"
-  return Ok(value)
+  match value do
+    items: [Any] => Ok(items)
+    _ => Error("expected an array")
+  end
 end
 
 let parse(text: String) -> Any or! String do

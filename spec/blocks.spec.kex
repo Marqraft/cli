@@ -14,7 +14,7 @@ describe "theme template blocks" do
       assert(FS.File.write(external + "/" + path, text).ok?)
     end
     assert(FS.Directory.create(external + "/blocks").ok?)
-    assert(FS.File.write(external + "/blocks/card.html.ket", "---\nparams: [context: {String: Any}]\n---\n<section class=\"card\"><h4><%= context[\"settings\"].try[\"title\"].or(\"\") %></h4><div data-marq-slot><%== context[\"body\"].or(\"\") %></div></section>").ok?)
+    assert(FS.File.write(external + "/blocks/card.html.ket", "---\nparams: [context: {String: Any}]\n---\n<% let settings = match context[\"settings\"].or({}) do\n  values: {String: Any} => values\n  _ => {}\nend %>\n<section class=\"card\"><h4><%= settings[\"title\"].or(\"\") %></h4><div data-marq-slot><%== context[\"body\"].or(\"\") %></div></section>").ok?)
     let root = "${FS.Directory.temporary}/marqraft-block-site-${Marqraft.Store.identifier}"
     Marqraft.Scaffold.create(root, external).try
     let site = Marqraft.Project.load(root).try

@@ -35,7 +35,7 @@ end
 # link would break.
 let checkDraftLinks(site: Site) -> Void or! String do
   let drafts = site.pages.filter { |page| page.draft? }
-  let broken = site.pages.filter { |page| !page.draft? }.flatMap { |page| drafts.filter { |draft| page.body.contains?("(${pagePath(draft)})") }.map { |draft| "${page.file}: link points to excluded draft ${pagePath(draft)}" } }
+  let broken = site.pages.filter { |page| !page.draft? }.into { |page| drafts.filter { |draft| page.body.contains?("(${pagePath(draft)})") }.map { |draft| "${page.file}: link points to excluded draft ${pagePath(draft)}" } }
   return broken.empty? then Ok(()) else Error(broken.first.try)
 end
 

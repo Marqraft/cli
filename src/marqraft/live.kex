@@ -174,8 +174,8 @@ foul fingerprint(root: String, mounts?: Bool) -> String do
   let external = theme.startsWith?("/") || theme.startsWith?("../") then [theme] else []
   let local = theme.startsWith?("./") then [theme.drop(2)] else []
   let roots = ["marqraft.jsonc", ".marqraft/navigation.json", ".marqraft/menus.json", "content", "public"] + local + mounted
-  let inside = roots.flatMap { |relative| stamps(root + "/" + relative, relative) }
-  let outside = external.flatMap { |path| stamps(path.startsWith?("/") then path else root + "/" + path, path) }
+  let inside = roots.into { |relative| stamps(root + "/" + relative, relative) }
+  let outside = external.into { |path| stamps(path.startsWith?("/") then path else root + "/" + path, path) }
   # A hash of (path, mtime, size) for every file: no string per file.
   return "${Kex.hash(inside + outside)}"
 end
@@ -191,7 +191,7 @@ foul stamps(path: String, label: String) -> [Any] do
   end
   if info.kind == :directory
     let names = FS.Directory.list(path).or([]).filter { |name| !name.startsWith?(".") && name != "node_modules" }
-    return names.flatMap { |name| stamps(path + "/" + name, label + "/" + name) }
+    return names.into { |name| stamps(path + "/" + name, label + "/" + name) }
   end
   let stamp: Any = (label, info.modified, info.size)
   return [stamp]

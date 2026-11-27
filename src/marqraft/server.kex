@@ -132,7 +132,7 @@ let authorized?(env: Rodolfo.Context, port: Integer, token: String) -> Bool do
   return env.request.headers.get("X-Marqraft-Session").or("") == token
 end
 
-foul jsonResult(result: {String: Any} or! String) do
+foul jsonResult(result: {String: Any} or! String) -> Rodolfo.Response.JSON do
   match result do
     Ok(data) => Response.JSON { body: Marqraft.Data.encode(data), headers: noCache }
     Error(message) => do
@@ -145,7 +145,7 @@ end
 # One request, answered from the site as it is on disk now, so every edit
 # shows on the next reload: a page (with the authoring UI), the search
 # index, or a file.
-foul serve(root: String, relative: String, token: String) do
+foul serve(root: String, relative: String, token: String) -> Rodolfo.Response.Text | Rodolfo.Response.JSON | Rodolfo.Response.HTML | Rodolfo.Response.Raw do
   let site = Marqraft.Live.site(root).try
   match Marqraft.Routes.find(site, relative) do
     None => return textReply(404, "Not found")
@@ -161,7 +161,7 @@ rescue |error|
 end
 
 # Generated pages render view-only: no editing bindings ever attach to them.
-foul renderPage(site: Site, page: Page, token: String) do
+foul renderPage(site: Site, page: Page, token: String) -> Rodolfo.Response.HTML | Rodolfo.Response.Text do
   let html = Marqraft.Theme.render(site, page, !page.generated?).try
   let generated = page.generated? then "<meta name=\"marq-generated\" content=\"${Marqraft.Content.escape(page.title)}\">" else ""
   let author = "<meta name=\"marq-token\" content=\"${token}\"><meta name=\"marq-page\" content=\"${Marqraft.Content.escape(page.id)}\">${generated}<link rel=\"stylesheet\" href=\"/__marqraft/editor.css\"><div id=\"marq-chrome\"></div><script src=\"/__marqraft/editor.js\" defer></script>"

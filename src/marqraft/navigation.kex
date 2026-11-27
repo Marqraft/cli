@@ -150,7 +150,7 @@ foul updateNavigation(root: String, revision: String, nodes: [NavNode]) -> Strin
 end
 
 let renamedId(renamed: [(String, String)], id: String) -> String do
-  let hits = renamed.flatMap do |pair|
+  let hits = renamed.into do |pair|
     let (old, fresh) = pair
     old == id then [fresh] else []
   end

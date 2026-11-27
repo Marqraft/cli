@@ -55,7 +55,7 @@ params: [context: {String: Any}]
 | `version`    | the version the page documents: its frontmatter `version`, else its collection's; a generated page's is its mount version directory; empty when none |
 | `searchIndex` | the URL of the site's search index (`"search"` in `marqraft.jsonc`), or empty |
 | `path`      | page URL path, such as `/guide/intro/`                   |
-| `settings`  | map of every declared setting: stored value or default (`context["settings"].try["label"].or("")`) |
+| `settings`  | map of every declared setting: stored value or default; narrow it before reading a field (see below) |
 | `siteTitle` | site title                                               |
 | `css`       | `style.css` plus setting variables (raw)                 |
 | `favicon`   | `<link rel="icon">` tags: the site's favicon, or the theme's `favicons` (raw) |
@@ -63,7 +63,7 @@ params: [context: {String: Any}]
 | `logo`      | `<img class="site-logo">` when the logo setting is set (raw) |
 | `authoring` | `true` in `marq dev`, `false` in builds                  |
 | `mounts`    | the site's mounts: `path`, `dir`, and `versions` (`name` + `path` per immediate subdirectory), for the theme to iterate |
-| `page`      | a generated page's own data: what a fragments mount's sidecar puts in `data` (`context["page"].try["version"].or("")`); empty otherwise |
+| `page`      | a generated page's own data: what a fragments mount's sidecar puts in `data`, narrowed like `settings` before reading a field; empty otherwise |
 
 Content regions are bound with elements rather than interpolation, so the
 authoring server can attach the editor to exactly that region and builds can
@@ -417,11 +417,19 @@ Markdown **body**.
 A block template receives `context["settings"]` (a map of attribute values)
 and `context["body"]` (rendered HTML), and must render exactly one root
 element. Unless `body` is `none`, it marks where the content goes with
-`data-marq-slot`:
+`data-marq-slot`.
+
+`context` is a `{String: Any}`, so `context["settings"]` is an `Any` until a
+type pattern narrows it to a map; only then can a template read its fields.
+Page templates read their `settings` the same way:
 
 ```text
+<% let settings = match context["settings"].or({}) do
+  values: {String: Any} => values
+  _ => {}
+end %>
 <section class="card">
-  <h4><%= context["settings"].try["title"].or("") %></h4>
+  <h4><%= settings["title"].or("") %></h4>
   <div data-marq-slot><%== context["body"].or("") %></div>
 </section>
 ```

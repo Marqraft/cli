@@ -14,64 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Same approach as kexhq/rodolfo and kexhq/markdown's CI: the newest
-      # released Tey/Kex predates the manifest and stdlib features this
-      # package (and its rodolfo/markdown dependencies) actually need, so
-      # `kexhq/setup-tey` can't get us a working toolchain yet. Build from
-      # `main`, deliberately unpinned — see rodolfo's CI for why: a pin
-      # freezes the canary that catches compiler regressions.
-      - name: Check out Kex
-        uses: actions/checkout@v4
-        with:
-          repository: kexhq/kex
-          ref: main
-          path: kex-src
-
-      # Matches kexhq/kex's own CI (.github/workflows/ci.yml, the
-      # build-tey job) so the toolchain built here behaves the same way.
+      # Kex and Tey from a pinned release, installed with its own
+      # install.sh. Bump KEX_VERSION when Marqraft moves to a newer Kex;
+      # kexhq/docs' Publish workflow pins the same version.
       # Marqraft calls OTP 27+ functions (json:encode/1, and
       # binary:encode_hex/2 from OTP 26); ubuntu-latest's erlang-base is
       # OTP 25, where every test that scaffolds a site failed with :undef.
-      # Installed before Kex so the compiler and Tey run on the same OTP.
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
 
-      - name: Install Kex build dependencies
+      - name: Install Kex and Tey
+        env:
+          KEX_VERSION: 0.4.0-rc.4
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libgmp-dev libpcre2-dev libreadline-dev \
-            libssl-dev libboost-context-dev
-
-      # --parallel (unbounded, i.e. one job per core) OOM-kills cc1plus on
-      # this runner's 7GB: kexhq/kex@main currently also builds the LSP
-      # framework and its own test binaries alongside the compiler, and
-      # two of those compiling at once outgrows the runner. Capped to 1 to
-      # trade build time for not dying halfway through.
-      - name: Build Kex and Tey
-        working-directory: kex-src
-        run: |
-          cmake -B build -G "Unix Makefiles" -DKEX_BOOST_STATIC=ON
-          cmake --build build --parallel 1
-          make build-tey
-          make tey-run
-
-      # `tey-run` (generated above) is a Tey launcher for this checkout; its
-      # default TEY_ERL is whatever `erl` built it on the machine that ran
-      # `make tey-run`, which is not this runner. A `tey` on PATH that
-      # forwards to it, with TEY_ERL pointed at this runner's own `erl`,
-      # keeps every later step's command (`tey install`, `tey build`, `tey
-      # test`) identical to what it was against a released toolchain.
-      - name: Put a `tey` wrapper on PATH
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          cat > "$HOME/.local/bin/tey" <<WRAP
-          #!/bin/sh
-          export TEY_ERL="$(command -v erl)"
-          exec "$GITHUB_WORKSPACE/kex-src/tey-run" "\$@"
-          WRAP
-          chmod +x "$HOME/.local/bin/tey"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://raw.githubusercontent.com/kexhq/kex/v$KEX_VERSION/install.sh" | sh -s -- --kex "$KEX_VERSION"
+          echo "$HOME/.local/share/tey/dist/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/tey/bin" >> "$GITHUB_PATH"
 
       - run: tey install
       - run: tey build

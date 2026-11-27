@@ -687,7 +687,7 @@ private do
   declaredRoutes : [Entry] -> String -> [Plug] -> [Route]
   foul declaredRoutes(entries, prefix, inherited) do
     let stack = inherited + plugsOf(entries)
-    routesAndScopesOf(entries).flatMap { |entry|
+    routesAndScopesOf(entries).into { |entry|
       match entry do
         Definition { method, path, handler } =>
           [compileFlat(Flat { method: method, path: joinedPath(prefix, path), plugs: stack, handler: handler })]
@@ -699,7 +699,7 @@ private do
   end
 
   plugsOf : [Entry] -> [Plug]
-  let plugsOf(entries) = entries.flatMap { |entry|
+  let plugsOf(entries) = entries.into { |entry|
     match entry do
       PlugEntry { wrapper } => [wrapper]
       _ => []
